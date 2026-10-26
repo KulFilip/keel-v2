@@ -74,7 +74,46 @@ export type Route = {
   /** v0.15.3 the project a link names (/projects/<id>/…) */ project?: string;
   /** v0.16.0 what follows "?" in the link (#/plugins?set=developer), when there is something */
   query?: string;
+  /** keel 0.18.57 an old link (#/budget, #/plugins/git) names a page that is a Settings tab now: the link to show
+   *  instead (#/settings/budget). The router puts it in the address bar; the route already opens the tab. */
+  redirect?: string;
 };
+
+/** keel 0.18.57 the Settings page's tabs, in its menu's order: #/settings/<tab>, and #/settings/general/<project> for one
+ *  project's own settings. Databases is the Database plugin's tab (slot settings.tab); the others are keel's own. */
+export const SETTINGS_TABS = ["general", "models", "connections", "budget", "plugins", "databases", "devices"] as const;
+export type SettingsTabId = (typeof SETTINGS_TABS)[number];
+
+/** keel's own Settings tabs: id, name in the settings menu, order (a part's tab goes between them by its order). */
+export const CORE_SETTINGS_TABS: { id: SettingsTabId; label: string; order: number }[] = [
+  { id: "general", label: "General", order: 10 },
+  { id: "models", label: "Models & logins", order: 20 },
+  { id: "connections", label: "Connections", order: 30 },
+  { id: "budget", label: "Budget", order: 40 },
+  { id: "plugins", label: "Plugins", order: 50 },
+  { id: "devices", label: "Devices", order: 70 },
+];
+
+/** A Settings tab's link: settingsHash("budget") is #/settings/budget; `rest` follows it (#/settings/plugins/git). */
+export const settingsHash = (tab: string, rest?: string) => `#/settings/${tab}${rest ? `/${rest}` : ""}`;
+
+/** The pages that became a Settings tab (keel 0.18.57). Their old links keep working: #/budget opens Settings › Budget,
+ *  #/plugins/git?at=projects opens Settings › Plugins › Git there, #/connections the Connections tab. */
+const MOVED: Record<string, SettingsTabId> = {
+  budget: "budget",
+  connections: "connections",
+  plugins: "plugins",
+  databases: "databases",
+  devices: "devices",
+  models: "models",
+};
+
+/** The tab and the rest of a Settings link: #/settings/plugins/rules/x → ["plugins", "rules/x"]; #/settings → general. */
+export function settingsTabOf(r: Pick<Route, "page" | "arg">): [string, string | undefined] {
+  if (r.page !== "settings" || !r.arg) return ["general", undefined];
+  const i = r.arg.indexOf("/");
+  return i < 0 ? [r.arg, undefined] : [r.arg.slice(0, i), r.arg.slice(i + 1) || undefined];
+}
 
 /** "#/flow", "#flow", "#/wiki/kb:architecture", "#/plugins?set=developer" → route. Unknown pages fall back to Flow. */
 /** decodeURIComponent that never throws: a link with a broken escape (#/jobs/100%) keeps its raw text. */
@@ -94,12 +133,25 @@ export function parseHash(hash: string): Route {
   const withQuery = (r: Route): Route => (query ? { ...r, query } : r);
   // v0.15.8 a link that names its project (keel_dashboard): #/projects/<id>/<page>[/<arg>]
   const pm = raw.match(/^projects\/([^/]+)\/(.+)$/);
-  if (pm)
-    return withQuery({
-      ...parseHash("#/" + pm[2]),
+  if (pm) {
+    const inner = parseHash("#/" + pm[2] + (query ? `?${query}` : ""));
+    return {
+      ...inner,
       project: safeDecode(pm[1]),
-    });
+      ...(inner.redirect ? { redirect: `#/projects/${pm[1]}/${inner.redirect.slice(2)}` } : {}),
+    };
+  }
   const [first, ...rest] = raw.split("/");
+  // keel 0.18.57 a page that is a Settings tab now: the tab, and the link to show instead
+  const moved = MOVED[first];
+  if (moved && !pageFor(first)) {
+    const tail = rest.join("/");
+    return withQuery({
+      page: SCREEN.settings,
+      arg: safeDecode(tail ? `${moved}/${tail}` : moved),
+      redirect: `${settingsHash(moved, tail)}${query ? `?${query}` : ""}`,
+    });
+  }
   // a page by the name it shows: #/code is the Code page (id repo), #/keelbot is KeelBot's own page (id helper)
   const page = pageFor(first)?.id ?? first;
   const arg = rest.length ? safeDecode(rest.join("/")) : undefined;

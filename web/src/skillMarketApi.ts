@@ -124,6 +124,6 @@ export function skillShort(r: SkillReview | null | undefined): string {
 }
 
 /** A skill's page in Control › Plugins. */
-export const skillHref = (name: string) => `#/plugins/skills/${encodeURIComponent(name)}`;
+export const skillHref = (name: string) => `#/settings/plugins/skills/${encodeURIComponent(name)}`;
 /** The Marketplace tab with the Skills view. */
-export const MARKET_SKILLS = "#/plugins?tab=market&kind=skills";
+export const MARKET_SKILLS = "#/settings/plugins?tab=market&kind=skills";

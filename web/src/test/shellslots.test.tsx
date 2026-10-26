@@ -115,16 +115,16 @@ describe("notes.setting and settings.browser", () => {
       );
       await user.click(screen.getByRole("tab", { name: "Settings" }));
       const field = await screen.findByTestId("pt-note");
-      // after the sound's field, before the pop-ups'
-      const fields = [...document.querySelectorAll(".field")];
-      const sound = fields.findIndex((f) =>
-        f.contains(screen.getByLabelText("Sound")),
-      );
-      expect(fields.indexOf(field)).toBe(sound + 1);
+      // after the sound's choices, before the pop-ups' switch
+      const sound = screen.getByRole("group", { name: "Sound" });
+      const popup = screen.getByRole("switch", { name: "Show a pop-up in keel" });
+      expect(sound.compareDocumentPosition(field) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(field.compareDocumentPosition(popup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       unmount();
 
-      location.hash = "#/settings";
+      location.hash = "#/settings/general";
       render(<App />);
+      await user.click(await screen.findByRole("button", { name: "This browser" }));
       const browser = await screen.findByRole("region", {
         name: "This browser",
       });

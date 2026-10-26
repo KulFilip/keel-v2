@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Seg } from "../../components/settingsUi";
 import { ErrorBox, Loading, Panel, Pill } from "../../components/ui";
 import { FROM, pendingOf, revokedText, updateOf, type LiveNote, type PluginsView } from "../../marketplaceApi";
 import { useApp, type Loaded } from "../../state";
@@ -51,12 +52,21 @@ export function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
   // v0.17.1 the per-project control's own notes ("applied" for a plugin keel has loaded)
   const [placeNotes, setPlaceNotes] = useState<Record<string, LiveNote>>({});
   const inside = useInside(view.data?.plugins ?? []);
+  const [filter, setFilter] = useState("");
+  const [show, setShow] = useState<"all" | "on" | "off" | "updates">("all");
   if (view.error && !view.data)
     return <ErrorBox error={view.error} onRetry={() => void view.reload()} />;
   if (!view.data) return <Loading what="Reading the installed plugins" />;
   const v = view.data;
   const titles = new Map(v.plugins.map((p) => [p.name, titleOf(p)]));
-  const rows = nested(v.plugins, inside);
+  const all = nested(v.plugins, inside);
+  // keel 0.18.57 Settings › Plugins: a filter by name and by state (All · On · Off · Updates)
+  const q = filter.trim().toLowerCase();
+  const fits = (p: (typeof v.plugins)[number]) =>
+    (!q || `${titleOf(p)} ${p.name}`.toLowerCase().includes(q)) &&
+    (show === "all" || (show === "on" && p.on !== false) || (show === "off" && p.on === false) || (show === "updates" && !!updateOf(p)));
+  const rows = all.filter(({ p }) => fits(p));
+  const coreShown = (!q || "keel core".includes(q)) && (show === "all" || show === "on");
   // the plugins whose change waits for the restart (the engine compares the next start with what is loaded)
   const pend = pendingOf(v);
   const waiting = new Set(
@@ -70,6 +80,11 @@ export function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
         </p>
       )}
       {err && <ErrorBox error={err} />}
+      <div className="ss-inline">
+        <input type="search" className="ss-input" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter installed plugins"
+          aria-label="Filter installed plugins" style={{ flex: "1 1 220px", maxWidth: 320 }} />
+        <Seg label="Show" value={show} onChange={setShow} options={[["all", "All"], ["on", "On"], ["off", "Off"], ["updates", "Updates"]]} />
+      </div>
       <Panel body={false}>
         <div className="table-wrap rt-wrap">
           <table className="mk-table mk-installed rt">
@@ -87,7 +102,7 @@ export function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
               </tr>
             </thead>
             <tbody>
-              <tr data-testid="keel-core">
+              {coreShown && <tr data-testid="keel-core">
                 <td className="rt-main">
                   <div className="mk-pname">
                     <KeelMark />
@@ -117,7 +132,7 @@ export function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
                   <Pill tone="ok">always on</Pill>
                 </td>
                 <td className="sub mk-right rt-end">Update the image</td>
-              </tr>
+              </tr>}
               {rows.map(({ p, parent, kids }) => {
                 const upd = updateOf(p);
                 const revoked = revokedText(p.revoked);
@@ -139,7 +154,7 @@ export function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
                       <div className="mk-pname">
                         <PluginIcon name={p.name} title={p.title} size="sm" />
                         <div>
-                          <a className="mk-plink" href={`#/plugins/${encodeURIComponent(p.name)}`}>
+                          <a className="mk-plink" href={`#/settings/plugins/${encodeURIComponent(p.name)}`}>
                             {titleOf(p)}
                           </a>
                           <span className="sub">
@@ -296,6 +311,11 @@ export function InstalledTab({ view }: { view: Loaded<PluginsView> }) {
       {!v.plugins.length && (
         <p className="sub" style={{ margin: 0 }}>
           No plugins yet. Find one in the Marketplace tab.
+        </p>
+      )}
+      {v.plugins.length > 0 && !rows.length && (q || show !== "all") && (
+        <p className="sub" style={{ margin: 0 }}>
+          No installed plugin matches. Try the marketplace.
         </p>
       )}
       {v.problems.length > 0 && (

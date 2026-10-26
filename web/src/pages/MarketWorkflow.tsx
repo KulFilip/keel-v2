@@ -4,7 +4,7 @@
 //   Marketplace › Workflows   search, the category chips, cards (icon, title, publisher ✓ / community, version,
 //                             summary, the review in short with a red mark when it runs commands, what it needs) and
 //                             Install / Installed here / Update to x. No catalog: a note that says so, never an empty page
-//   #/plugins/workflow/<name> the workflow's page: its steps as a read-only graph (the builder's own Graph), the YAML
+//   #/settings/plugins/workflow/<name> the workflow's page: its steps as a read-only graph (the builder's own Graph), the YAML
 //                             (folded), the Install review, what it needs (plugins on/off with a link to the plugin's
 //                             page, agents here or missing), versions and the checks keel runs
 //
@@ -84,7 +84,7 @@ export type MarketKind = "plugins" | "workflows" | "rules" | "skills" | "stacks"
 export function KindSwitch({ kind }: { kind: MarketKind }) {
   const to = (k: MarketKind) => {
     const h = k === "workflows" ? MARKET_WORKFLOWS : k === "rules" ? MARKET_RULES : k === "skills" ? MARKET_SKILLS
-      : k === "stacks" ? MARKET_STACKS : "#/plugins?tab=market";
+      : k === "stacks" ? MARKET_STACKS : "#/settings/plugins?tab=market";
     if (location.hash !== h) location.hash = h;
   };
   return (
@@ -286,7 +286,7 @@ export function WorkflowsMarket({ view }: { view: PluginsView | null }) {
               </span>
             ))}
           <span className="row" style={{ marginTop: 8 }}>
-            <a className="btn sm" href="#/plugins?tab=sources" style={{ textDecoration: "none" }}>
+            <a className="btn sm" href="#/settings/plugins?tab=sources" style={{ textDecoration: "none" }}>
               Sources and rules
             </a>
             <a className="btn sm" href="#/workflows" style={{ textDecoration: "none" }}>
@@ -485,7 +485,7 @@ export function MarketInstallDialog({
               <ul>
                 {refused.missing_plugins.map((n) => (
                   <li key={n}>
-                    <a href={`#/plugins/${encodeURIComponent(n)}`}>Open the {n} plugin's page</a>
+                    <a href={`#/settings/plugins/${encodeURIComponent(n)}`}>Open the {n} plugin's page</a>
                   </li>
                 ))}
               </ul>
@@ -521,7 +521,7 @@ export function MarketWorkflowPage({ name, view }: { name: string; view: Plugins
   const w: MarketWorkflow | null = r.data;
   const crumb = (
     <nav className="mk-crumb" aria-label="Breadcrumb">
-      <a href="#/plugins">Plugins</a>
+      <a href="#/settings/plugins">Plugins</a>
       <span aria-hidden="true">›</span>
       <a href={MARKET_WORKFLOWS}>Workflows</a>
       <span aria-hidden="true">›</span>
@@ -691,7 +691,7 @@ export function MarketWorkflowPage({ name, view }: { name: string; view: Plugins
                       <b>{mine?.title ?? n}</b> <span className="mono sub">{w.needs.plugins[n]}</span>{" "}
                       <span className="sub">{on ? "plugin · on" : mine ? "plugin · off" : "plugin · not installed"}</span>{" "}
                       {!on && (
-                        <a href={`#/plugins/${encodeURIComponent(n)}`}>{mine ? "turn on" : "install it"}</a>
+                        <a href={`#/settings/plugins/${encodeURIComponent(n)}`}>{mine ? "turn on" : "install it"}</a>
                       )}
                     </span>
                   </div>

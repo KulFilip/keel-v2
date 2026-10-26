@@ -73,6 +73,18 @@ function Router() {
       /* jsdom */
     }
   }, [page]);
+  // keel 0.18.57 an old link (#/budget, #/plugins/git) opens its Settings tab already; the address bar shows the new
+  // link, in place of the old one (Back does not come here again)
+  useEffect(() => {
+    if (route.redirect && location.hash !== route.redirect) {
+      try {
+        history.replaceState(history.state, "", route.redirect);
+        window.dispatchEvent(new HashChangeEvent("hashchange"));
+      } catch {
+        location.replace(route.redirect);
+      }
+    }
+  }, [route.redirect]);
   // a Product-only keel (or the Product view) has no Flow page: the start page (an empty link) and a link to Flow open
   // Product's first page, else the Inbox
   const features = useFeatures();

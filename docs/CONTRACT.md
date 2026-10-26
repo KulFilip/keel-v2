@@ -2186,8 +2186,8 @@ api     GET  /api/marketplace/skills?q=&category=&project=   + installed {versio
              409 the same version, or another without replace
 ```
 
-The dashboard: **Control › Plugins › Marketplace › Skills** (`#/plugins?tab=market&kind=skills`; a skill's page
-`#/plugins/skills/<name>`): From keel (keel's own, Agents…), the catalogs' cards (Install with the agents to tick,
+The dashboard: **Settings › Plugins › Marketplace › Skills** (`#/settings/plugins?tab=market&kind=skills`; a skill's page
+`#/settings/plugins/skills/<name>`): From keel (keel's own, Agents…), the catalogs' cards (Install with the agents to tick,
 Installed here, Update: keep an edited copy or replace it, Remove), the text and keel's review. **Publishing**:
 `keel-plugin skills lint <name>-<version>.md`, `keel-plugin skills add <skill dir…> --market <dir>` (keel's own are in
 `docs/plugins/marketplace-repo/skills/`, unsigned until keel's key signs them), `keel-plugin index` builds the `skills`
@@ -2277,8 +2277,8 @@ api     GET  /api/marketplace/stacks?q=&category=&project=   + installed {versio
 
 The dashboard: **Build › Stacks** (From, turned off, Turn off / on, Show YAML, Remove after a yes, **Find stacks**,
 **New stack**: Lane → Detect → Test layers → Commands → Tools → Check, each step filled from keel's suggestions, the YAML
-editable and checked again before Save) and **Control › Plugins › Marketplace › Stacks** (`#/plugins?tab=market&kind=stacks`;
-a stack's page `#/plugins/stacks/<name>`: From keel (Install pack), the catalogs' cards, the YAML, keel's review and
+editable and checked again before Save) and **Settings › Plugins › Marketplace › Stacks** (`#/settings/plugins?tab=market&kind=stacks`;
+a stack's page `#/settings/plugins/stacks/<name>`: From keel (Install pack), the catalogs' cards, the YAML, keel's review and
 check, Install, Update, Remove). **Publishing**: `keel-plugin stacks lint <name>-<version>.yaml`, `keel-plugin stacks
 add <stack.yml | pack dir…> --market <dir>` (keel's own are in `docs/plugins/marketplace-repo/stacks/`, unsigned until
 keel's key signs them); `keel-plugin index` builds the `stacks` list.

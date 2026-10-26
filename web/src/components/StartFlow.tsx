@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, ApiError, errorParts, type CapsLeft, type Estimate, type FlowWhere, type Limit, type OnCap, type RunMode, type StartCheck, type TaskOwner, type Workflow } from "../api";
 import { kfmt, parseTokens, usd } from "../format";
 import { go, useApp } from "../state";
+import { settingsHash } from "../routes";
 import { RunModePicker } from "./RunMode";
 import { Drawer, ErrorBox } from "./ui";
 import { WorkspaceDoctor } from "./WorkspaceDoctor";
@@ -340,9 +341,9 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
       {model && (
         <div className={model.provider === "fake" && !isDemo ? "wbar warn" : "wbar"} role="note">
           <span>Agents use <b>{model.provider === "fake" ? "the fake model" : `${model.provider} · ${model.model}${model.effort ? ` · ${model.effort}` : ""}`}</b>
-            {model.provider === "fake" ? (isDemo ? " — fine for the demo." : ": it writes example files, not real code. Pick a real model in Connections › Use for all agents.") : "."}
+            {model.provider === "fake" ? (isDemo ? " — fine for the demo." : ": it writes example files, not real code. Pick a real model in Settings › Models & logins › Use for all agents.") : "."}
             {!isDemo && " The flow works on its own branch (Settings › Branch name)."}</span>
-          {model.provider === "fake" && !isDemo && <button className="btn sm" type="button" onClick={() => { onClose(); go("connections"); }}>Open Connections</button>}
+          {model.provider === "fake" && !isDemo && <button className="btn sm" type="button" onClick={() => { onClose(); location.hash = settingsHash("models"); }}>Open Models &amp; logins</button>}
         </div>
       )}
       <div className="est-box" aria-live="polite">

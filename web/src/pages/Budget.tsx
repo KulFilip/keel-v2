@@ -1,17 +1,20 @@
-// Budget (Control), in three parts that never mix: what the providers report (their plan windows), what keel counted
-// (this project this month, and each account across all projects against the limit you set), and the limits that
-// stop a flow (the cap and plan-window rules from Settings, plus this project's caps). Each part loads on its own.
+// Settings › Budget (keel 0.18.57; Control › Budget before), in three parts that never mix: what the providers report
+// (their plan windows), what keel counted (this project this month, the tokens per day, and each account across all
+// projects against the limit you set), and the limits that stop a flow (the rules for every flow, saved in General,
+// plus this project's caps). Each part loads on its own.
 
 import { useEffect, useState } from "react";
-import { api, errorParts, type Budget, type Cap, type CapLeft, type CapScope, type CapsLeft, type Limit } from "../api";
-import { EmptyState, Section, Skeleton, useWidth } from "../components/page";
-import { Drawer, ErrorBox, PageHead, Panel, Prov } from "../components/ui";
+import { api, errorParts, type Budget, type Cap, type CapLeft, type CapScope, type CapsLeft, type Limit, type Model } from "../api";
+import { EmptyState, Skeleton } from "../components/page";
+import { Note, RadioCards, Seg } from "../components/settingsUi";
+import { Drawer, ErrorBox, NoProject, Prov } from "../components/ui";
 import { UsageStrip } from "../components/UsageStrip";
 import { kfmt, parseTokens, PROV, usd } from "../format";
 import { useApp, useLoad, type Loaded } from "../state";
+import { SettingsFrame } from "./settings/frame";
+import { GeneralRow, useScopedSettings, type Row } from "./settings/rows";
 
 const PROVS = ["claude", "codex", "copilot", "fake"] as const;
-const FILL: Record<string, string> = { claude: "fill-claude", codex: "fill-codex", copilot: "fill-copilot", fake: "" };
 
 function niceMax(v: number) {
   if (v <= 0) return 1000;
@@ -28,46 +31,47 @@ function dayLabel(day: string, first: boolean) {
     ? d.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" })
     : String(d.getUTCDate());
 }
+const longDay = (day: string) => {
+  const d = new Date(`${day}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) ? day : d.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
+};
 
-/** Tokens per day, stacked by provider. A phone gets a narrower drawing (bigger text) instead of a sideways scroll. */
+/** Tokens per day, stacked by provider: one bar per day, a click (or Tab and Enter) on a bar says that day's numbers. */
 export function UsageChart({ days }: { days: Budget["days"] }) {
-  const [box, width] = useWidth<HTMLDivElement>();
-  const narrow = width > 0 && width < 520;
-  const W = narrow ? 340 : 640, H = narrow ? 190 : 200, padL = narrow ? 38 : 46, padT = 26, padB = 24;
-  const every = narrow ? 4 : days.length <= 8 ? 1 : 2;
   const totals = days.map((d) => PROVS.reduce((a, p) => a + (d[p] || 0), 0));
   const max = niceMax(Math.max(...totals, 0));
-  const bw = (W - padL - 6) / Math.max(1, days.length);
-  const gap = Math.min(8, bw * 0.25);
-  const y = (v: number) => H - padB - (v / max) * (H - padB - padT);
-  const ticks = [0, max / 2, max];
+  const [picked, setPicked] = useState(days.length - 1);
+  const i = Math.min(Math.max(0, picked), days.length - 1);
+  const d = days[i];
+  const shown = PROVS.filter((p) => days.some((x) => x[p]));
+  const every = days.length <= 8 ? 1 : 2;
   return (
-    <div ref={box}><svg viewBox={`0 0 ${W} ${H}`} className="chart bd-chart" role="img"
-      aria-label={`Tokens per day, last ${days.length} days, by provider. Most in one day: ${kfmt(Math.max(...totals, 0))} tokens.`}>
-      <text x={0} y={12} className="ax bd-ax-t">tokens per day</text>
-      {ticks.map((t) => (
-        <g key={t}>
-          <line x1={padL} x2={W - 2} y1={y(t)} y2={y(t)} stroke="var(--border)" />
-          <text x={padL - 6} y={y(t) + 4} textAnchor="end" className="ax">{kfmt(t)}</text>
-        </g>
-      ))}
-      {days.map((d, i) => {
-        let base = 0;
-        const x = padL + gap / 2 + i * bw;
-        return (
-          <g key={d.day}>
-            {PROVS.map((p) => {
-              const v = d[p] || 0;
-              if (!v) return null;
-              const r = <rect key={p} x={x} y={y(base + v)} width={Math.max(1, bw - gap)} height={Math.max(1, y(base) - y(base + v))} rx={2} className={FILL[p]} style={p === "fake" ? { fill: "var(--faint)" } : undefined}><title>{PROV[p]}: {kfmt(v)} tokens on {d.day}</title></rect>;
-              base += v;
-              return r;
-            })}
-            {i % every === 0 && <text x={x + (bw - gap) / 2} y={H - 6} textAnchor="middle" className="ax">{dayLabel(d.day, i === 0)}</text>}
-          </g>
-        );
-      })}
-    </svg></div>
+    <>
+      <div className="ss-chart">
+        <div className="ss-chart-y" aria-hidden="true"><span>{kfmt(max)}</span><span>{kfmt(max / 2)}</span><span>0</span></div>
+        <div className="ss-chart-p" role="group"
+          aria-label={`Tokens per day, last ${days.length} days, by provider. Most in one day: ${kfmt(Math.max(...totals, 0))} tokens.`}>
+          <span className="ss-chart-grid" style={{ top: 0 }} />
+          <span className="ss-chart-grid" style={{ top: "calc((100% - 22px) / 2)" }} />
+          <span className="ss-chart-grid" style={{ bottom: 22 }} />
+          {days.map((x, j) => (
+            <button key={x.day} type="button" aria-pressed={j === i} onClick={() => setPicked(j)}
+              aria-label={`${longDay(x.day)}: ${kfmt(totals[j])} tokens`} title={`${longDay(x.day)}: ${kfmt(totals[j])} tokens`}>
+              {[...shown].reverse().map((p) => x[p] ? (
+                <span key={p} className={`seg sw-${p}`} style={{ height: `${(x[p] / max) * 100}%` }} />
+              ) : null)}
+              {(j % every === 0 || j === days.length - 1) && <span className="lab" aria-hidden="true">{dayLabel(x.day, j === 0)}</span>}
+            </button>
+          ))}
+        </div>
+      </div>
+      {d && (
+        <span role="status" style={{ fontSize: 13 }} data-testid="chart-picked">
+          <b style={{ fontWeight: 600 }}>{longDay(d.day)}: {kfmt(totals[i])} tokens.</b>{" "}
+          <span className="ss-meta">{shown.map((p) => `${PROV[p] ?? p} ${kfmt(d[p] || 0)}`).join(" · ")}</span>
+        </span>
+      )}
+    </>
   );
 }
 
@@ -110,24 +114,24 @@ function LimitsDrawer({ limits, focus, onClose, onSaved }: { limits: Limit[]; fo
     }
   };
   return (
-    <Drawer title="Account limits" onClose={onClose}
-      footer={<><button className="btn" type="button" onClick={onClose}>Cancel</button><button className="btn primary" type="button" onClick={save} disabled={busy}>{busy ? "Saving…" : "Save"}</button></>}>
-      <p className="sub" style={{ margin: 0 }}>keel counts what its own agent runs use on each account, across all projects. Write the limit your plan allows to see how close you are. Leave it empty for no limit.</p>
+    <Drawer title="Account limits" onClose={onClose} className="ss-drawer"
+      footer={<><button className="ss-btn" type="button" onClick={onClose}>Cancel</button><button className="ss-btn p" type="button" onClick={save} disabled={busy}>{busy ? "Saving…" : "Save"}</button></>}>
+      <p className="ss-sub">keel counts what its own agent runs use on each account, across all projects. Write the limit your plan allows to see how close you are. Leave it empty for no limit.</p>
       {rows.map((l, i) => hasLiveSource(l) ? (
-        <div key={l.id} className="field"><span className="lab">{l.name}</span><span className="hint">Read from {l.source}. No limit to type.</span></div>
+        <div key={l.id} className="ss-label"><span>{l.name} <span className="ss-meta">({l.unit})</span></span><span className="ss-help">Read from {l.source}. No limit to type.</span></div>
       ) : (
-        <div key={l.id} className="field">
-          <label htmlFor={`lim-${l.id}`}>{l.name} <span className="sub" style={{ textTransform: "none", letterSpacing: 0 }}>({l.unit})</span></label>
-          <div className="row">
-            <input type="text" id={`lim-${l.id}`} inputMode="decimal" value={l.text} placeholder="no limit" className="bd-lim-in"
+        <div key={l.id} className="ss-label">
+          <label htmlFor={`lim-${l.id}`}>{l.name} <span className="ss-meta">({l.unit})</span></label>
+          <span className="ss-actions">
+            <input type="text" id={`lim-${l.id}`} inputMode="decimal" value={l.text} placeholder="no limit" className="ss-input mono" style={{ width: 120 }}
               onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, text: e.target.value } : r)))} />
-            <input type="text" aria-label={`${l.name} note`} value={l.note} placeholder="note, e.g. resets Nov 1" className="bd-lim-note"
+            <input type="text" aria-label={`${l.name} note`} value={l.note} placeholder="note, e.g. resets Nov 1" className="ss-input" style={{ flex: "1 1 180px" }}
               onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, note: e.target.value } : r)))} />
-          </div>
-          {isTokens(l) && <span className="hint">For example 600k or 1.2M.</span>}
+          </span>
+          {isTokens(l) && <span className="ss-help">For example 600k or 1.2M.</span>}
         </div>
       ))}
-      {!rows.length && <span className="sub">No accounts known.</span>}
+      {!rows.length && <span className="ss-meta">No accounts known.</span>}
       {err && <ErrorBox error={err} />}
     </Drawer>
   );
@@ -160,7 +164,7 @@ export function capLeftText(l: CapLeft | undefined): { text: string; tone?: "bad
   const when = l.window === "day" ? "today" : "this month";
   const used = `${amount(l.used)} used ${when}`;
   if (l.left <= 0) return { text: `used up · resets ${l.window === "day" ? "tomorrow, 00:00 UTC" : "on the 1st"}`, tone: "bad", used };
-  return { text: `${amount(l.left)} left ${when}`, used };
+  return { text: `${amount(l.left)} left ${when}`, tone: l.limit > 0 && l.left / l.limit < 0.2 ? "warn" : undefined, used };
 }
 
 function CapDrawer({ pid, cap, onClose, onSaved }: { pid: string; cap: Cap | null; onClose: () => void; onSaved: (c: Cap) => void }) {
@@ -193,33 +197,31 @@ function CapDrawer({ pid, cap, onClose, onSaved }: { pid: string; cap: Cap | nul
     }
   };
   return (
-    <Drawer title={cap ? "Edit cap" : "Add cap"} onClose={onClose}
-      footer={<><button className="btn" type="button" onClick={onClose}>Cancel</button>
-        <button className="btn primary" type="button" onClick={save} disabled={busy}>{busy ? "Saving…" : cap ? "Save cap" : "Add cap"}</button></>}>
-      <div className="field"><label htmlFor="cap-scope">What it limits</label>
-        <select id="cap-scope" value={scope} onChange={(e) => {
-          const v = e.target.value as CapScope;
+    <Drawer title={cap ? "Edit cap" : "Add cap"} onClose={onClose} className="ss-drawer"
+      footer={<><button className="ss-btn" type="button" onClick={onClose}>Cancel</button>
+        <button className="ss-btn p" type="button" onClick={save} disabled={busy}>{busy ? "Saving…" : cap ? "Save cap" : "Add cap"}</button></>}>
+      <div className="ss-label">
+        <b id="cap-scope-h" style={{ fontWeight: 600, fontSize: 14 }}>What it limits</b>
+        <RadioCards labelledBy="cap-scope-h" value={scope} onChange={(v) => {
           setScope(v);
           if (v === "api_month") setUnit("usd");
-        }}>
-          {(Object.keys(CAP_SCOPE) as CapScope[]).map((k) => <option key={k} value={k}>{CAP_SCOPE[k]}</option>)}
-        </select>
-        <span className="hint">{CAP_HOW[scope]}</span></div>
-      <div className="field"><label htmlFor="cap-limit">Limit</label>
-        <div className="row">
-          <input type="text" id="cap-limit" value={limit} onChange={(e) => setLimit(e.target.value)} placeholder={unit === "usd" ? "100" : "500k"} style={{ width: 120 }} />
-          <select aria-label="Unit" value={unit} onChange={(e) => setUnit(e.target.value as Cap["unit"])}>
-            <option value="tokens">tokens</option><option value="usd">US dollars (API cost)</option>
-          </select>
-        </div>
-        {unit === "usd" && (scope === "step"
-          ? <span className="hint amber" role="note">keel cannot count dollars per step: this cap would limit nothing. Pick tokens.</span>
-          : <span className="hint">Dollars are the cost runs report: API-key runs, and Claude subscription runs at API prices (the plan pays those).{scope === "api_month" ? " This month counts API-key runs only." : ""}</span>)}
+        }} options={(Object.keys(CAP_SCOPE) as CapScope[]).map((k) => ({ id: k, title: CAP_SCOPE[k], sub: CAP_HOW[k] }))} />
       </div>
-      <div className="field"><label htmlFor="cap-action">When it is hit</label>
-        <select id="cap-action" value={action} onChange={(e) => setAction(e.target.value as Cap["action"])}>
-          {(Object.keys(CAP_ACTION) as Cap["action"][]).map((k) => <option key={k} value={k}>{CAP_ACTION[k]}</option>)}
-        </select></div>
+      <div className="ss-label">
+        <label htmlFor="cap-limit" style={{ fontWeight: 600, fontSize: 14 }}>Limit</label>
+        <span className="ss-actions">
+          <input type="text" id="cap-limit" className="ss-input mono" value={limit} onChange={(e) => { setLimit(e.target.value); setErr(null); }}
+            placeholder={unit === "usd" ? "100" : "500k"} style={{ width: 120 }} aria-invalid={!!err} />
+          <Seg label="Unit" value={unit} onChange={setUnit} options={[["tokens", "tokens"], ["usd", "US dollars (API cost)"]]} />
+        </span>
+        {unit === "usd" && (scope === "step"
+          ? <Note tone="warn" role="note">keel cannot count dollars per step: this cap would limit nothing. Pick tokens.</Note>
+          : <span className="ss-help">Dollars are the cost runs report: API-key runs, and Claude subscription runs at API prices (the plan pays those).{scope === "api_month" ? " This month counts API-key runs only." : ""}</span>)}
+      </div>
+      <div className="ss-label">
+        <b style={{ fontWeight: 600, fontSize: 14 }}>When it is hit</b>
+        <Seg label="When it is hit" value={action} onChange={setAction} options={(Object.keys(CAP_ACTION) as Cap["action"][]).map((k) => [k, CAP_ACTION[k]] as [Cap["action"], string])} />
+      </div>
       {err && <ErrorBox error={err} />}
     </Drawer>
   );
@@ -228,7 +230,8 @@ function CapDrawer({ pid, cap, onClose, onSaved }: { pid: string; cap: Cap | nul
 /** What a flow started now gets from Settings and every cap (the smallest one left binds), or why it cannot start. */
 function NextFlow({ left, caps }: { left: CapsLeft; caps: Cap[] }) {
   const n = left.next_flow;
-  if (n.refused) return <p className="hint bd-next" data-testid="next-flow"><span className="amber">A flow cannot start now: {n.refused.error}</span> {n.refused.hint}</p>;
+  const style = { margin: 0, padding: "12px 20px", borderTop: "1px solid var(--border)", fontSize: 13 };
+  if (n.refused) return <p className="ss-meta" style={style} data-testid="next-flow"><span className="ss-warn-text">A flow cannot start now: {n.refused.error}</span> {n.refused.hint}</p>;
   const from = (id?: string | null) => {
     const c = caps.find((x) => x.id === id);
     return c ? ` (${CAP_SCOPE[c.scope] ?? c.scope})` : id === "settings" ? " (Settings)" : "";
@@ -238,9 +241,9 @@ function NextFlow({ left, caps }: { left: CapsLeft; caps: Cap[] }) {
   if (n.cap_usd) parts.push(`${usd(n.cap_usd)} of reported cost${from(n.usd_from)}, then ${CAP_ACTION[n.on_cap_usd ?? n.on_cap] ?? n.on_cap_usd}`);
   if (n.step_cap_tokens) parts.push(`at most ${kfmt(n.step_cap_tokens)} tokens per agent step, then ${CAP_ACTION[n.step_on_cap ?? n.on_cap] ?? n.step_on_cap}`);
   return (
-    <p className="hint bd-next" data-testid="next-flow">
+    <p className="ss-meta" style={style} data-testid="next-flow">
       {parts.length ? <>A flow started now gets {parts.join("; ")}.</> : "A flow started now has no token or dollar cap."}
-      {n.cheaper && <> <span className="amber">Every agent starts on the cheaper model: a cap that says so is used up.</span></>}
+      {n.cheaper && <> <span className="ss-warn-text">Every agent starts on the cheaper model: a cap that says so is used up.</span></>}
     </p>
   );
 }
@@ -264,91 +267,95 @@ function CapsPanel({ pid, name, onAdd, onEdit, caps, left, onChanged }: {
   };
   const empty = !!caps.data && !caps.data.length;
   return (
-    <Panel title={<h3>Caps for {name}</h3>} extra={empty ? undefined : <button className="btn sm" type="button" onClick={onAdd}>Add cap</button>} body={false}>
-      {caps.error ? <div className="panel-body"><ErrorBox error={caps.error} onRetry={() => void caps.reload()} /></div>
-        : !caps.data ? <Skeleton lines={2} label="Loading caps" />
+    <section className="ss-list" aria-labelledby="b-caps">
+      <div className="ss-row0">
+        <b id="b-caps" style={{ flex: 1, fontWeight: 600 }}>Caps for {name}</b>
+        {!empty && <button className="ss-btn sm" type="button" onClick={onAdd}>Add cap</button>}
+      </div>
+      {caps.error ? <div className="ss-row"><ErrorBox error={caps.error} onRetry={() => void caps.reload()} /></div>
+        : !caps.data ? <div className="ss-row"><Skeleton lines={2} label="Loading caps" /></div>
           : empty ? (
-            <EmptyState compact title="No extra cap" action={<button className="btn sm" type="button" onClick={onAdd}>Add cap</button>}>
-              Only the cap per flow from Settings applies. Add one for a day, a single step or API spend.
-            </EmptyState>
+            <div className="ss-row">
+              <span className="ss-grow"><b style={{ fontWeight: 500 }}>No extra cap</b><span className="ss-meta">Only the cap per flow from Settings applies. Add one for a day, a single step or API spend.</span></span>
+              <button className="ss-btn sm" type="button" onClick={onAdd}>Add cap</button>
+            </div>
           ) : (
-            <div className="table-wrap rt-wrap"><table aria-label="Caps" className="rt">
+            <div className="ss-tablewrap" style={{ borderTop: "1px solid var(--border)" }}><table aria-label="Caps" className="ss-table">
               <thead><tr><th>Scope</th><th>Limit</th><th>Left now</th><th>When hit</th><th><span className="sr-only">Actions</span></th></tr></thead>
               <tbody>
                 {caps.data.map((c) => {
                   const l = capLeftText(left.data?.caps.find((x) => x.id === c.id));
                   return (
-                  <tr key={c.id}>
-                    <td className="rt-main">{CAP_SCOPE[c.scope] ?? c.scope}</td><td className="num mono">{capLimit(c)}</td>
-                    <td data-label="left now" data-testid={`cap-left-${c.id}`}>
-                      {!left.data && !left.error ? <span className="sub">…</span>
-                        : <><span className={l.tone ? (l.tone === "bad" ? "bd-out" : "amber") : undefined}>{l.text}</span>{l.used && <span className="hint"> · {l.used}</span>}</>}
-                    </td>
-                    <td className="sub">{CAP_ACTION[c.action] ?? c.action}</td>
-                    <td className="rt-end"><div className="row" style={{ gap: 4, flexWrap: "nowrap", justifyContent: "flex-end" }}>
-                      {asking === c.id ? (
-                        <>
-                          <button className="btn sm warn" type="button" onClick={() => remove(c)}>Yes, delete</button>
-                          <button className="btn sm" type="button" onClick={() => setAsking(null)}>Keep</button>
-                        </>
-                      ) : (
-                        <>
-                          <button className="btn sm ghost" type="button" aria-label={`Edit cap ${CAP_SCOPE[c.scope] ?? c.scope}`} onClick={() => onEdit(c)}>Edit</button>
-                          <button className="btn sm ghost" type="button" aria-label={`Delete cap ${CAP_SCOPE[c.scope] ?? c.scope}`} onClick={() => setAsking(c.id)}>Delete</button>
-                        </>
-                      )}
-                    </div></td>
-                  </tr>
+                    <tr key={c.id}>
+                      <td style={{ fontWeight: 500 }}>{CAP_SCOPE[c.scope] ?? c.scope}</td><td className="ss-mono">{capLimit(c)}</td>
+                      <td data-label="left now" data-testid={`cap-left-${c.id}`}>
+                        {!left.data && !left.error ? <span className="ss-meta">…</span>
+                          : <><span style={l.tone ? { color: `var(--${l.tone})` } : undefined}>{l.text}</span>{l.used && <span className="ss-meta"> · {l.used}</span>}</>}
+                      </td>
+                      <td className="ss-meta">{CAP_ACTION[c.action] ?? c.action}</td>
+                      <td style={{ textAlign: "right" }}>
+                        {asking === c.id ? (
+                          <span className="ss-actions" style={{ justifyContent: "flex-end", flexWrap: "nowrap" }}>
+                            <button className="ss-btn sm dp" type="button" onClick={() => remove(c)}>Yes, delete</button>
+                            <button className="ss-btn sm" type="button" onClick={() => setAsking(null)}>Keep</button>
+                          </span>
+                        ) : (
+                          <span className="ss-actions" style={{ justifyContent: "flex-end", flexWrap: "nowrap" }}>
+                            <button className="ss-btn sm g" type="button" aria-label={`Edit cap ${CAP_SCOPE[c.scope] ?? c.scope}`} onClick={() => onEdit(c)}>Edit</button>
+                            <button className="ss-btn sm q" type="button" aria-label={`Delete cap ${CAP_SCOPE[c.scope] ?? c.scope}`} onClick={() => setAsking(c.id)}>Delete</button>
+                          </span>
+                        )}
+                      </td>
+                    </tr>
                   );
                 })}
               </tbody>
             </table></div>
           )}
       {left.data && caps.data && <NextFlow left={left.data} caps={caps.data} />}
-    </Panel>
+    </section>
   );
 }
 
-const limitProv = (l: Limit) => (l.id === "api" ? "fake" : /claude|anthropic/i.test(l.name) ? "claude" : /codex|openai|gpt/i.test(l.name) ? "codex" : /copilot|github/i.test(l.name) ? "copilot" : "claude");
+const limitProv = (l: Limit) => (l.id === "api" ? "api" : /claude|anthropic/i.test(l.name) ? "claude" : /codex|openai|gpt/i.test(l.name) ? "codex" : /copilot|github/i.test(l.name) ? "copilot" : "claude");
 
 /** keel's own count for each account (all projects), next to the limit you set — or "No cap set" and a way to set one. */
 function AccountsPanel({ limits, onEdit }: { limits: Loaded<Limit[]>; onEdit: (focus?: string) => void }) {
   return (
-    <Panel title={<h3>Each account, all projects</h3>}
-      extra={limits.data?.length ? <button className="btn sm" type="button" onClick={() => onEdit()}>Edit limits</button> : undefined} body={false}>
-      {limits.error ? <div className="panel-body"><ErrorBox error={limits.error} onRetry={() => void limits.reload()} /></div>
-        : !limits.data ? <Skeleton lines={3} label="Counting" />
-          : !limits.data.length ? <EmptyState compact title="No account to count">keel counts an account once a provider is set up in Connections.</EmptyState> : (
-            <ul className="bd-accts" aria-label="Accounts">
+    <section className="ss-list narrow" aria-labelledby="b-acc">
+      <div className="ss-row0">
+        <b id="b-acc" style={{ flex: 1, fontWeight: 600 }}>Each account, all projects</b>
+        {!!limits.data?.length && <button className="ss-btn sm" type="button" onClick={() => onEdit()}>Edit limits</button>}
+      </div>
+      {limits.error ? <div className="ss-row"><ErrorBox error={limits.error} onRetry={() => void limits.reload()} /></div>
+        : !limits.data ? <div className="ss-row"><Skeleton lines={3} label="Counting" /></div>
+          : !limits.data.length ? <div className="ss-row"><EmptyState compact title="No account to count">keel counts an account once a provider is set up in Models &amp; logins.</EmptyState></div> : (
+            <ul aria-label="Accounts" style={{ listStyle: "none", margin: 0, padding: 0 }}>
               {limits.data.map((l) => {
                 const live = hasLiveSource(l);
                 const pc = l.cap > 0 ? (l.used / l.cap) * 100 : null;
                 const tone = pc == null ? "ok" : pc > 80 ? "bad" : pc > 60 ? "warn" : "ok";
                 return (
-                  <li key={l.id} className="bd-acct" data-testid={`limit-${l.id}`}>
-                    <span className="prov bd-acct-n"><i className={`c-${limitProv(l)}`} style={l.id === "api" ? { background: "var(--faint)" } : undefined} />{l.name}</span>
-                    <span className="bd-acct-used"><b className="pg-num">{limitUsed(l)[0]}</b> {limitUsed(l)[1]}
-                      {l.note && !/0 = not set/i.test(l.note) && <span className="hint"> · {l.note}</span>}</span>
-                    <span className="bd-acct-cap">
-                      {live ? <span className="sub">its own window is above (read from {l.source})</span>
-                        : pc == null ? (
-                          <>
-                            <span className="sub">No cap set</span>
-                            <button className="btn sm" type="button" onClick={() => onEdit(l.id)} aria-label={`Set a cap for ${l.name}`}>Set a cap</button>
-                          </>
-                        ) : (
-                          <>
-                            <span className={`meter m-${tone}`} aria-label={`${Math.round(pc)}% of the cap`}><i style={{ width: `${Math.min(100, pc)}%` }} /></span>
-                            <span className="sub pg-num">{Math.round(pc)}% of {limitCap(l)}</span>
-                          </>
-                        )}
-                    </span>
+                  <li key={l.id} className="ss-acct" data-testid={`limit-${l.id}`}>
+                    <span className="ss-inline"><span className={`ss-swatch sw-${limitProv(l)}`} aria-hidden="true" /><b style={{ fontWeight: 500 }}>{l.name}</b></span>
+                    <span style={{ fontSize: 13 }}><b style={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{limitUsed(l)[0]}</b> {limitUsed(l)[1]}
+                      {l.note && !/0 = not set/i.test(l.note) && <span className="ss-meta"> · {l.note}</span>}</span>
+                    {live ? <span className="ss-meta ss-small">its own window is above (read from {l.source})</span>
+                      : pc == null ? (
+                        <span className="ss-inline"><span className="ss-meta">No cap set</span>
+                          <button className="ss-btn sm g" type="button" onClick={() => onEdit(l.id)} aria-label={`Set a cap for ${l.name}`}>Set a cap</button></span>
+                      ) : (
+                        <span className="ss-acct-cap">
+                          <span className={`ss-bar t-${tone}`} role="img" aria-label={`${Math.round(pc)}% of the cap`}><i style={{ width: `${Math.min(100, pc)}%` }} /></span>
+                          <span className="ss-meta ss-small">{Math.round(pc)}% of {limitCap(l)}</span>
+                        </span>
+                      )}
                   </li>
                 );
               })}
             </ul>
           )}
-    </Panel>
+    </section>
   );
 }
 
@@ -359,27 +366,28 @@ function ProjectsPanel({ b }: { b: Loaded<Budget> }) {
   const all = b.data?.all;
   if (!b.data || !rows.length) return null;
   return (
-    <Panel title={<h3>Each project, this month</h3>} body={false}>
-      <div className="table-wrap rt-wrap"><table className="rt" aria-label="Each project, this month">
+    <section className="ss-list" aria-labelledby="b-proj">
+      <div className="ss-row0"><b id="b-proj" style={{ fontWeight: 600 }}>Each project, this month</b></div>
+      <div className="ss-tablewrap" style={{ borderTop: "1px solid var(--border)" }}><table className="ss-table" aria-label="Each project, this month">
         <thead><tr><th>Project</th><th>Tokens</th><th>At API prices</th><th>On API keys</th></tr></thead>
         <tbody>
           {rows.map((r) => (
             <tr key={r.project_id} data-testid={`project-spend-${r.project_id}`}>
-              <td className="rt-main"><b>{r.name}</b></td>
-              <td className="num mono" data-label="tokens">{kfmt(r.tokens)}</td>
-              <td className="num" data-label="at API prices">{usd(r.cost_usd)}</td>
-              <td className="num" data-label="on API keys">{r.api_cost_usd ? usd(r.api_cost_usd) : <span className="sub">none</span>}</td>
+              <td style={{ fontWeight: 600 }}>{r.name}</td>
+              <td className="ss-mono" data-label="tokens">{kfmt(r.tokens)}</td>
+              <td data-label="at API prices">{usd(r.cost_usd)}</td>
+              <td data-label="on API keys">{r.api_cost_usd ? usd(r.api_cost_usd) : <span className="ss-meta">none</span>}</td>
             </tr>
           ))}
           {all && rows.length > 1 && (
-            <tr data-testid="project-spend-all"><td className="rt-main"><b>All projects</b></td>
-              <td className="num mono" data-label="tokens"><b>{kfmt(all.tokens)}</b></td>
-              <td className="num" data-label="at API prices"><b>{usd(all.cost_usd)}</b></td>
-              <td className="num" data-label="on API keys"><b>{usd(rows.reduce((n, r) => n + (r.api_cost_usd || 0), 0))}</b></td></tr>
+            <tr data-testid="project-spend-all"><td style={{ fontWeight: 600 }}>All projects</td>
+              <td className="ss-mono" data-label="tokens"><b>{kfmt(all.tokens)}</b></td>
+              <td data-label="at API prices"><b>{usd(all.cost_usd)}</b></td>
+              <td data-label="on API keys"><b>{usd(rows.reduce((n, r) => n + (r.api_cost_usd || 0), 0))}</b></td></tr>
           )}
         </tbody>
       </table></div>
-    </Panel>
+    </section>
   );
 }
 
@@ -388,111 +396,163 @@ function MonthKpis({ b, name }: { b: Loaded<Budget>; name: string }) {
   const m = b.data?.month;
   const v = (x: string | number) => (m ? x : <span className="pg-skel bd-kpi-skel" aria-hidden="true" />);
   return (
-    <Panel title={<h3>{name}, this month</h3>} body="bd-kpis" className="bd-month">
+    <section className="ss-cardp" style={{ gap: 12 }} aria-labelledby="b-month">
+      <b id="b-month" style={{ fontWeight: 600 }}>{name}, this month</b>
       {!m && <span className="sr-only" role="status">Loading this month's numbers…</span>}
-      <div><span className="sub">Tokens</span><b className="big num">{v(kfmt(m?.tokens))}</b></div>
-      <div><span className="sub">Cost at API prices</span><b className="big num">{v(usd(m?.cost_usd))}</b><span className="hint">a plan pays for subscription runs</span></div>
-      <div><span className="sub">Flows</span><b className="big num">{v(m?.flows ?? 0)}</b></div>
-      <div><span className="sub">Copilot premium requests</span><b className="big num">{v((m?.premium_requests ?? 0).toLocaleString())}</b></div>
-    </Panel>
+      <div className="ss-kpis">
+        <div className="ss-kpi"><span className="ss-meta">Tokens</span><b>{v(kfmt(m?.tokens))}</b></div>
+        <div className="ss-kpi"><span className="ss-meta">Cost at API prices</span><b>{v(usd(m?.cost_usd))}</b><span className="ss-meta ss-small">a plan pays for subscription runs</span></div>
+        <div className="ss-kpi"><span className="ss-meta">Flows</span><b>{v(m?.flows ?? 0)}</b></div>
+        <div className="ss-kpi"><span className="ss-meta">Copilot premium requests</span><b>{v((m?.premium_requests ?? 0).toLocaleString())}</b></div>
+      </div>
+    </section>
   );
 }
 
-/** The flow-stopping rules that live in Settings: the cap per flow and the plan-window thresholds. */
-function FromSettings({ pid }: { pid: string }) {
-  const s = useLoad(`settings:${pid}`, () => api.projectSettings(pid), { live: false });
-  const e = s.data?.effective;
-  const pct = (x: number | undefined, d: number) => `${Math.round((x ?? d) * 100)}%`;
-  const cheap = e?.cheaper_model;
+/** The rules for every flow: the cap per flow and the plan-window thresholds (General's values, saved here). */
+export const BUDGET_ROWS: Row[] = [
+  { key: "cap_tokens", label: "Cap per flow (tokens)", kind: { t: "tokens" }, help: "A flow stops at this many tokens and does what you pick below. Start a flow can set its own cap." },
+  { key: "on_cap", label: "When a cap is hit", kind: { t: "select", opts: [["pause", "pause and ask me"], ["cheaper", "switch to cheaper model"], ["stop", "stop"]] },
+    help: "Pause and ask you, switch to the cheaper model, or stop the flow." },
+  { key: "usage_warn", label: "Warn when a plan window is", def: 0.8, kind: { t: "select", opts: [["0.7", "70% used"], ["0.8", "80% used"], ["0.9", "90% used"]] },
+    help: "Before a subscription agent runs: a warning in the flow when the provider's window is this full." },
+  { key: "usage_pause", label: "Pause before the next agent at", def: 0.95, kind: { t: "select", opts: [["0.9", "90% used"], ["0.95", "95% used"], ["0.99", "99% used"], ["1", "100% (only when full)"]] },
+    help: "Above this, keel asks: go on, wait for the reset, use the cheaper model, or stop." },
+];
+
+/** For every flow: the rules, editable, and the cheaper model they switch to (it is chosen in Models & logins). */
+function ForEveryFlow({ pid, name }: { pid: string; name: string }) {
+  const s = useScopedSettings(pid, name);
+  const cheap = (s.proj.data?.effective ?? s.general.data)?.cheaper_model as Model | undefined;
   return (
-    <Panel title={<h3>From Settings</h3>} extra={<a className="btn sm" href="#/settings">Change in Settings</a>} body={false}>
-      {s.error ? <div className="panel-body"><ErrorBox error={s.error} onRetry={() => void s.reload()} /></div> : !e ? <Skeleton lines={3} label="Reading settings" /> : (
-        <dl className="bd-rules">
-          <div><dt>Cap per flow</dt><dd><b className="pg-num">{kfmt(e.cap_tokens)} tokens</b>, then {CAP_ACTION[e.on_cap] ?? e.on_cap}</dd></div>
-          <div><dt>Plan window</dt><dd>warn at <b>{pct(e.usage_warn, 0.8)}</b> used, pause before the next agent at <b>{pct(e.usage_pause, 0.95)}</b></dd></div>
-          <div><dt>Cheaper model</dt><dd>{!cheap || cheap.provider === "fake" ? <span className="amber">not set: a real flow pauses and asks instead</span> : <><b>{PROV[cheap.provider] ?? cheap.provider} {cheap.model}{cheap.effort ? ` · ${cheap.effort}` : ""}</b>, when a cap says to switch</>}</dd></div>
-        </dl>
+    <section className="ss-cardp" style={{ gap: 0 }} aria-labelledby="b-every" data-testid="for-every-flow">
+      <b id="b-every" style={{ fontWeight: 600 }}>For every flow</b>
+      <span className="ss-meta ss-small">Saved for every project; a project that changes one says so here.</span>
+      {s.general.error ? <ErrorBox error={s.general.error} onRetry={() => void s.general.reload()} /> : (
+        BUDGET_ROWS.map((row) => <GeneralRow key={row.key} row={row} s={s} projectName={name} />)
       )}
-    </Panel>
+      <div className="ss-set">
+        <div className="ss-set-l"><b>Cheaper model</b><span className="ss-help">Used when a cap says to switch.</span></div>
+        <div className="ss-set-c" style={{ fontSize: 13 }}>
+          <span>
+            {!cheap ? <span className="ss-meta">…</span> : cheap.provider === "fake"
+              ? <span className="ss-warn-text">not set: a real flow pauses and asks instead</span>
+              : <b style={{ fontWeight: 600 }}>{PROV[cheap.provider] ?? cheap.provider} {cheap.model}{cheap.effort ? ` · ${cheap.effort}` : ""}</b>}
+            {" · "}<a href="#/settings/models">change in Models &amp; logins</a>
+          </span>
+        </div>
+      </div>
+    </section>
   );
 }
 
 export function BudgetPage({ pid }: { pid: string }) {
   const { project } = useApp();
+  const name = project?.name ?? pid;
+  const [capEdit, setCapEdit] = useState<Cap | "new" | null>(null);
+  const line = `What ${pid ? name : "a project"} used, what each provider says is left, and the limits that stop a flow.`;
+  if (!pid)
+    return (
+      <SettingsFrame tab="budget" title="Budget" line={line}>
+        <NoProject />
+      </SettingsFrame>
+    );
+  return (
+    <SettingsFrame tab="budget" title="Budget" line={line}
+      actions={<button className="ss-btn p" type="button" onClick={() => setCapEdit("new")}>Add cap</button>}>
+      <BudgetBody pid={pid} name={name} capEdit={capEdit} setCapEdit={setCapEdit} />
+    </SettingsFrame>
+  );
+}
+
+function BudgetBody({ pid, name, capEdit, setCapEdit }: { pid: string; name: string; capEdit: Cap | "new" | null; setCapEdit: (c: Cap | "new" | null) => void }) {
   const budget = useLoad(`budget:${pid}`, () => api.budget(pid));
   const limits = useLoad("limits", () => api.limits());
   const [editing, setEditing] = useState<{ focus?: string } | null>(null);
   const caps = useLoad(`caps:${pid}`, () => api.caps(pid), { live: false });
   const left = useLoad(`capsLeft:${pid}`, () => api.capsLeft(pid));
-  const [capEdit, setCapEdit] = useState<Cap | "new" | null>(null);
-  const name = project?.name ?? pid;
   const b = budget.data;
+  const shown = b ? PROVS.filter((p) => b.days.some((d) => d[p])) : [];
+  const empty = (title: string, text: string) => <div className="ss-row"><EmptyState compact title={title}>{text}</EmptyState></div>;
   return (
     <>
-      <PageHead title="Budget" sub={`What ${name} used, what each provider says is left, and the limits that stop a flow.`}
-        actions={<button className="btn primary" type="button" onClick={() => setCapEdit("new")}>Add cap</button>} />
+      <section className="ss-sec" aria-labelledby="b-prov">
+        <div>
+          <h2 id="b-prov" className="ss-h2">What the providers report</h2>
+          <p className="ss-sub">Plan windows read from Claude, Codex and Copilot themselves. They reset on the provider's clock; keel only reads them.</p>
+        </div>
+        <UsageStrip loading={<div className="ss-cardp"><Skeleton lines={2} label="Asking the providers" /></div>}
+          empty={<div className="ss-card"><EmptyState title="No provider is set up yet" action={<a className="ss-btn" href="#/settings/models">Open Models &amp; logins</a>}>Save a login or a key in Models &amp; logins to see its plan usage here.</EmptyState></div>} />
+      </section>
 
-      <Section title="What the providers report" sub="Plan windows read from Claude, Codex and Copilot themselves. They reset on the provider's clock; keel only reads them.">
-        <UsageStrip loading={<div className="panel"><Skeleton lines={2} label="Asking the providers" /></div>}
-          empty={<div className="panel"><EmptyState title="No provider is set up yet" action={<a className="btn" href="#/connections">Open Connections</a>}>Save a login or a key in Connections to see its plan usage here.</EmptyState></div>} />
-      </Section>
-
-      <Section title="What keel counted" sub={`Tokens and cost of the agent runs keel made: ${name} this month, and each account across all projects.`}>
+      <section className="ss-sec" aria-labelledby="b-count">
+        <div>
+          <h2 id="b-count" className="ss-h2">What keel counted</h2>
+          <p className="ss-sub">Tokens and cost of the agent runs keel made: {name} this month, and each account across all projects.</p>
+        </div>
         <MonthKpis b={budget} name={name} />
-        <div className="grid bd-g">
-          <Panel title={<h3>Tokens per day</h3>} extra={b && <div className="legend">{PROVS.filter((p) => b.days.some((d) => d[p])).map((p) => <span key={p}><i className={`c-${p}`} style={{ border: 0, background: p === "fake" ? "var(--faint)" : undefined }} />{PROV[p]}</span>)}</div>}>
-            {!b ? (budget.error ? <span className="sub">No chart: the budget did not load.</span> : <Skeleton lines={4} label="Drawing" />)
-              : b.days.some((d) => PROVS.some((p) => d[p])) ? <UsageChart days={b.days} />
+        <div className="ss-split">
+          <section className="ss-cardp wide" style={{ gap: 12 }} aria-labelledby="b-days">
+            <div className="ss-inline" style={{ gap: "8px 16px" }}>
+              <b id="b-days" style={{ flex: 1, fontWeight: 600 }}>Tokens per day</b>
+              {shown.map((p) => <span key={p} className="ss-legend"><span className={`ss-swatch sw-${p}`} />{PROV[p]}</span>)}
+            </div>
+            {!b ? (budget.error ? <span className="ss-meta">No chart: the budget did not load.</span> : <Skeleton lines={4} label="Drawing" />)
+              : shown.length ? <UsageChart days={b.days} />
                 : <EmptyState compact title="No usage yet">The chart fills in once an agent of {name} has run.</EmptyState>}
-            <p className="hint" style={{ margin: "6px 0 0" }}>Last {b?.days.length || 14} days. Input and output tokens, plus a tenth of cached input (it costs about a tenth).</p>
-          </Panel>
+            <span className="ss-meta ss-small">Last {b?.days.length || 14} days. Input and output tokens, plus a tenth of cached input (it costs about a tenth).</span>
+          </section>
           <AccountsPanel limits={limits} onEdit={(focus) => setEditing({ focus })} />
         </div>
         <ProjectsPanel b={budget} />
-        <div className="grid bd-g">
-          <Panel title={<h3>Biggest users this month</h3>} body={false}>
-            {!b ? (!budget.error && <Skeleton lines={3} />) : !b.top.length ? <EmptyState compact title="No agent ran this month">The agents that used the most tokens show here.</EmptyState> : (
-              <div className="table-wrap rt-wrap"><table className="rt" aria-label="Biggest users this month">
+        <div className="ss-split">
+          <section className="ss-list half" aria-labelledby="b-top">
+            <div className="ss-row0"><b id="b-top" style={{ fontWeight: 600 }}>Biggest users this month</b></div>
+            {!b ? (!budget.error && <div className="ss-row"><Skeleton lines={3} /></div>) : !b.top.length ? empty("No agent ran this month", "The agents that used the most tokens show here.") : (
+              <div className="ss-tablewrap" style={{ borderTop: "1px solid var(--border)" }}><table className="ss-table" aria-label="Biggest users this month">
                 <thead><tr><th>Agent</th><th>Model</th><th>Tokens</th><th>At API prices</th></tr></thead>
                 <tbody>
                   {b.top.map((t, i) => (
-                    <tr key={i}><td className="rt-main"><b>{t.agent}</b></td><td><Prov p={t.provider} /></td><td className="num mono" data-label="tokens">{kfmt(t.tokens)}</td>
-                      <td className="num" data-label="at API prices">{t.cost_usd ? usd(t.cost_usd) : <span className="sub">subscription</span>}</td></tr>
+                    <tr key={i}><td style={{ fontWeight: 600 }}>{t.agent}</td><td><Prov p={t.provider} /></td><td className="ss-mono" data-label="tokens">{kfmt(t.tokens)}</td>
+                      <td data-label="at API prices">{t.cost_usd ? usd(t.cost_usd) : <span className="ss-meta">subscription</span>}</td></tr>
                   ))}
                 </tbody>
               </table></div>
             )}
-          </Panel>
-          <Panel title={<h3>Estimate vs real, last flows</h3>} body={false}>
-            {!b ? (!budget.error && <Skeleton lines={3} />) : !b.recent.length ? <EmptyState compact title="No flow yet">Each flow's estimate and what it really used show here.</EmptyState> : (
-              <div className="table-wrap rt-wrap"><table className="rt" aria-label="Estimate vs real">
+          </section>
+          <section className="ss-list half" aria-labelledby="b-est">
+            <div className="ss-row0"><b id="b-est" style={{ fontWeight: 600 }}>Estimate vs real, last flows</b></div>
+            {!b ? (!budget.error && <div className="ss-row"><Skeleton lines={3} /></div>) : !b.recent.length ? empty("No flow yet", "Each flow's estimate and what it really used show here.") : (
+              <div className="ss-tablewrap" style={{ borderTop: "1px solid var(--border)" }}><table className="ss-table" aria-label="Estimate vs real">
                 <thead><tr><th>Flow</th><th>Estimate</th><th>Real</th><th>Diff</th><th>Status</th></tr></thead>
                 <tbody>
                   {b.recent.map((r, i) => {
                     const d = r.estimate ? Math.round(((r.real - r.estimate) / r.estimate) * 100) : null;
                     return (
-                      <tr key={i}><td className="rt-main">{r.title}</td>
-                        <td className="num mono" data-label="estimate">{r.estimate ? kfmt(r.estimate) : "—"}</td>
-                        <td className="num mono" data-label="real">{kfmt(r.real)}</td>
-                        <td className="num" data-label="diff" style={d == null ? undefined : { color: `var(--${Math.abs(d) > 30 ? "bad" : Math.abs(d) > 10 ? "warn" : "ok"})` }}>{d == null ? "—" : `${d > 0 ? "+" : ""}${d}%`}</td>
-                        <td className="sub rt-end">{r.status}</td></tr>
+                      <tr key={i}><td>{r.title}</td>
+                        <td className="ss-mono" data-label="estimate">{r.estimate ? kfmt(r.estimate) : "—"}</td>
+                        <td className="ss-mono" data-label="real">{kfmt(r.real)}</td>
+                        <td data-label="diff" style={d == null ? undefined : { color: `var(--${Math.abs(d) > 30 ? "bad" : Math.abs(d) > 10 ? "warn" : "ok"})` }}>{d == null ? "—" : `${d > 0 ? "+" : ""}${d}%`}</td>
+                        <td className="ss-meta">{r.status}</td></tr>
                     );
                   })}
                 </tbody>
               </table></div>
             )}
-          </Panel>
+          </section>
         </div>
-      </Section>
+      </section>
 
-      <Section title="Limits that stop a flow" sub={`${HOW_CAPS} When one is reached, the flow pauses and asks you, switches to the cheaper model, or stops. A cap that is used up today or this month stops a new flow from starting (or starts it on the cheaper model).`}>
-        <div className="grid bd-g">
-          <FromSettings pid={pid} />
-          <CapsPanel pid={pid} name={name} caps={caps} left={left} onAdd={() => setCapEdit("new")} onEdit={(c) => setCapEdit(c)} onChanged={() => void left.reload()} />
+      <section className="ss-sec" aria-labelledby="b-limits">
+        <div>
+          <h2 id="b-limits" className="ss-h2">Limits that stop a flow</h2>
+          <p className="ss-sub">{HOW_CAPS} When one is reached, the flow pauses and asks you, switches to the cheaper model, or stops. A cap that is used up today or this month stops a new flow from starting (or starts it on the cheaper model).</p>
         </div>
-      </Section>
+        <ForEveryFlow pid={pid} name={name} />
+        <CapsPanel pid={pid} name={name} caps={caps} left={left} onAdd={() => setCapEdit("new")} onEdit={(c) => setCapEdit(c)} onChanged={() => void left.reload()} />
+      </section>
 
-      <p className="hint" style={{ marginTop: 18 }}>Where the numbers come from: the providers' own plan windows (Claude: its last run; Codex: codex app-server; Copilot: GitHub, unofficial); keel's count from LangChain usage metadata for API calls and each CLI's usage line.</p>
+      <p className="ss-sub ss-small">Where the numbers come from: the providers' own plan windows (Claude: its last run; Codex: codex app-server; Copilot: GitHub, unofficial); keel's count from LangChain usage metadata for API calls and each CLI's usage line.</p>
       {capEdit && <CapDrawer pid={pid} cap={capEdit === "new" ? null : capEdit} onClose={() => setCapEdit(null)}
         onSaved={(c) => {
           caps.setData((l) => (l ? (l.some((x) => x.id === c.id) ? l.map((x) => (x.id === c.id ? c : x)) : [...l, c]) : [c]));

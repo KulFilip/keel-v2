@@ -69,9 +69,11 @@ describe("the Database plugin's web part", () => {
         order?: number;
         plugin?: string;
       }>(slot).filter((i) => i.id === "db" || i.id === "databases");
+    // keel 0.18.57 its connections are a Settings tab of their own (Settings › Databases), not a Connections section
+    expect(one(SLOTS.connectionsKind)).toEqual([]);
     expect(
-      one(SLOTS.connectionsKind).map((i) => [i.id, i.title, i.order]),
-    ).toEqual([["databases", "Databases", 40]]);
+      one(SLOTS.settingsTab).map((i) => [i.id, i.title, i.order]),
+    ).toEqual([["databases", "Databases", 60]]);
     expect(
       one(SLOTS.codeActivity).map((i) => [i.id, i.title, i.order, i.plugin]),
     ).toEqual([["db", "Database", 50, "db"]]);

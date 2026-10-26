@@ -32,7 +32,7 @@ describe("flow safety", () => {
 
   it("'Use for all agents' saves that provider as the model of every agent", async () => {
     const user = userEvent.setup();
-    location.hash = "#/connections";
+    location.hash = "#/settings/models";
     render(<App />);
     await user.click(await screen.findByRole("button", { name: "Use for all agents" }));
     await waitFor(() => expect(db.calls.find((c) => c.method === "PUT" && c.path === "/api/settings/general")?.body).toEqual({

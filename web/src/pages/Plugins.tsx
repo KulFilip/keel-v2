@@ -16,20 +16,20 @@
 //                       the image, with a note, never an empty page
 //   Sources and rules   the catalogs (add one with its URL and public key, refresh, problems), the four rules, and
 //                       install from a file in /data
-//   #/plugins/<name>    the plugin's own page (PluginDetail.tsx): about, permissions, versions, checks, needs, and
+//   #/settings/plugins/<name>    the plugin's own page (PluginDetail.tsx): about, permissions, versions, checks, needs, and
 //                       (v0.17.1) the projects it is on for
 //
 // 0.16.1 plugin track (docs/plugins/21-workflow-marketplace.md §4): the Marketplace has a kind switch, Plugins ·
-// Workflows (#/plugins?tab=market&kind=workflows); a workflow's own page is #/plugins/workflow/<name>
+// Workflows (#/settings/plugins?tab=market&kind=workflows); a workflow's own page is #/settings/plugins/workflow/<name>
 // (MarketWorkflow.tsx).
 // Rule packs (docs/plugins/23-rules-in-marketplace.md §3) are the third kind: Plugins · Workflows · Rules
-// (?kind=rules); a pack's page is #/plugins/rules/<name> (MarketRulePack.tsx). keel 0.18.6: Skills is the fourth
-// (?kind=skills, MarketSkill.tsx): keel's own skills and the catalogs'; a skill's page is #/plugins/skills/<name>.
-// keel 0.18.9: Stacks is the fifth (?kind=stacks, MarketStack.tsx); a stack's page is #/plugins/stacks/<name>.
+// (?kind=rules); a pack's page is #/settings/plugins/rules/<name> (MarketRulePack.tsx). keel 0.18.6: Skills is the fourth
+// (?kind=skills, MarketSkill.tsx): keel's own skills and the catalogs'; a skill's page is #/settings/plugins/skills/<name>.
+// keel 0.18.9: Stacks is the fifth (?kind=stacks, MarketStack.tsx); a stack's page is #/settings/plugins/stacks/<name>.
 //
 // Install opens a dialog that lists everything that will be installed and what each one may do.
-// #/plugins?set=developer (the core-only welcome's set cards) opens the install question for what that set adds at
+// #/settings/plugins?set=developer (the core-only welcome's set cards) opens the install question for what that set adds at
 // once (the missing plugins; the image's plugins that are off are turned on); nothing installs before the person presses
-// Install. #/plugins?tab=market|installed|sources opens that tab.
+// Install. #/settings/plugins?tab=market|installed|sources opens that tab.
 
 export { PluginsPage } from "./plugins/PluginsPage";

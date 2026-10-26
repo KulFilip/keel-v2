@@ -53,6 +53,8 @@ export const SLOTS = {
   notesSetting: "notes.setting",
   /** Settings › This browser: a part's row (KeelBot's own sound) */
   settingsBrowser: "settings.browser",
+  /** keel 0.18.57 Settings: a part's own tab in the settings menu (the Database plugin's Databases), #/settings/<id> */
+  settingsTab: "settings.tab",
 } as const;
 
 /** A part's piece is shown only while this project has the plugin on (Control › Plugins), when it names one. */
@@ -304,6 +306,16 @@ export type KeysAreaItem = SlotItem & KeyArea;
 /** A field in the notification settings (the bell's drawer), or a row in Settings › This browser. */
 export type NotesSettingItem = SlotItem & { component: ComponentType };
 export type SettingsBrowserItem = SlotItem & { component: ComponentType };
+
+/** keel 0.18.57 Settings: a part's tab. `title` is its name in the menu, `order` its place among keel's own (General 10,
+ *  Models & logins 20, Connections 30, Budget 40, Plugins 50, Devices 70); `line` is the one line under its title. The
+ *  component draws the tab's content (keel draws the head and the menu); `actions` go on the right of the head. */
+export type SettingsTabItem = SlotItem & {
+  title: string;
+  line: string;
+  component: ComponentType<{ pid: string }>;
+  actions?: ComponentType<{ pid: string }>;
+};
 
 // ---------- the launcher (⌘K) ----------
 

@@ -130,7 +130,7 @@ export function MarketTab({
           />
           <div style={{ minWidth: 0 }}>
             <h3>
-              <a className="mk-card-link" href={`#/plugins/${encodeURIComponent(h.name)}`}>
+              <a className="mk-card-link" href={`#/settings/plugins/${encodeURIComponent(h.name)}`}>
                 {title}
               </a>
               {isBeta(version) && <span className="tag warn">beta</span>}

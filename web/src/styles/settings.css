@@ -1,0 +1,1355 @@
+/* keel 0.18.57 Settings: one page with its own menu (General · Models & logins · Connections · Budget · Plugins ·
+   Databases · Devices), in the look of the redesign's Settings mockups. Quiet chrome: thin borders, one accent, colour
+   only for state. Every value is a theme token, so light and dark both work. The pieces are components/settingsUi.tsx. */
+
+/* ---------- the frame: head, the menu on the left (chips on a phone), the tab's content ---------- */
+.ss-page {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  min-width: 0;
+}
+.ss-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+.ss-head-t {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+.ss-crumb {
+  color: var(--dim);
+  font-size: 13px;
+}
+.ss-head h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+.ss-head-t > p {
+  margin: 4px 0 0;
+  color: var(--dim);
+  max-width: 78ch;
+}
+.ss-head-a {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+.ss-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 32px;
+}
+.ss-menu {
+  flex: 1 1 180px;
+  max-width: 208px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: sticky;
+  top: 24px;
+}
+.ss-menu-h {
+  padding: 0 10px 8px;
+  color: var(--dim);
+  font-size: 12px;
+  font-weight: 500;
+}
+.ss-menu a,
+.ss-chips a {
+  text-decoration: none;
+}
+.ss-menu a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: var(--dim);
+}
+.ss-menu a > span:first-child {
+  flex: 1;
+}
+.ss-menu a:hover {
+  background: var(--panel-2);
+  color: var(--fg);
+}
+.ss-menu a[aria-current="page"] {
+  background: var(--accent-soft);
+  color: var(--fg);
+  font-weight: 500;
+}
+.ss-menu-foot {
+  margin-top: 16px;
+  padding: 10px;
+  border-top: 1px solid var(--border);
+  color: var(--dim);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.ss-hint {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 12px;
+  font-weight: 500;
+}
+.ss-chips {
+  display: none;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ss-chips a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--dim);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.ss-chips a[aria-current="page"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--fg);
+  font-weight: 600;
+}
+.ss-content {
+  flex: 999 1 520px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+@media (max-width: 900px) {
+  .ss-menu {
+    display: none;
+  }
+  .ss-chips {
+    display: flex;
+    margin-top: -12px;
+  }
+  .ss-page {
+    gap: 24px;
+  }
+}
+
+/* ---------- text ---------- */
+.ss-h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.ss-h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.ss-sub {
+  margin: 0;
+  color: var(--dim);
+  font-size: 13px;
+}
+.ss-meta {
+  color: var(--dim);
+  font-size: 13px;
+  font-weight: 400;
+}
+.ss-small {
+  font-size: 12px;
+}
+.ss-help {
+  color: var(--dim);
+  font-size: 13px;
+  font-weight: 400;
+}
+.ss-mono {
+  font-family: var(--f-mono);
+  font-size: 13px;
+}
+.ss-warn-text {
+  color: var(--warn);
+}
+.ss-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.ss-sechead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 12px;
+}
+.ss-sechead > div:first-child {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+.ss-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ---------- surfaces ---------- */
+.ss-full { flex: 1 1 100%; }
+.ss-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  min-width: 0;
+}
+.ss-cardp {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  min-width: 0;
+}
+.ss-list {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  overflow: hidden;
+  min-width: 0;
+}
+.ss-row0,
+.ss-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  min-width: 0;
+}
+.ss-row {
+  border-top: 1px solid var(--border);
+}
+.ss-grow {
+  flex: 1 1 240px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ss-push {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.ss-tile {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--fg);
+  font-weight: 600;
+}
+.ss-tile.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.ss-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--dim);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.ss-tag.acc {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.ss-tag.run {
+  background: var(--run-soft);
+  color: var(--run);
+}
+.ss-tag.warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.pill.ss-pill {
+  font-size: 13px;
+  font-weight: 500;
+  padding: 2px 10px;
+  gap: 6px;
+}
+.pill.p-acc {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.ss-note {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ss-note.t-err {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+.ss-note.t-warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.ss-note.t-ok {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.ss-note.t-info {
+  background: var(--accent-soft);
+  color: var(--fg);
+}
+.ss-note b {
+  font-weight: 600;
+}
+.ss-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--bad-soft);
+  flex: 1 1 100%;
+}
+.ss-confirm > span {
+  flex: 1 1 240px;
+  color: var(--bad);
+  font-size: 13px;
+}
+
+/* ---------- buttons and fields ---------- */
+.ss-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  text-decoration: none;
+}
+.ss-btn:hover {
+  border-color: var(--faint);
+}
+.ss-btn.sm {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+.ss-btn.p {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.ss-btn.g {
+  border-color: transparent;
+  padding: 0 8px;
+  color: var(--accent);
+}
+.ss-btn.q {
+  border-color: transparent;
+  padding: 0 8px;
+  color: var(--dim);
+}
+.ss-btn.g:hover,
+.ss-btn.q:hover {
+  background: var(--panel-2);
+}
+.ss-btn.d {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+.ss-btn.dp {
+  border-color: var(--bad);
+  background: var(--bad);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.ss-btn.link {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: inherit;
+}
+.ss-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ss-x {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dim);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.ss-x:hover {
+  background: var(--panel-2);
+  color: var(--fg);
+}
+.ss-input {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  min-width: 0;
+}
+.ss-input.mono {
+  font-family: var(--f-mono);
+  font-size: 13px;
+}
+.ss-input[aria-invalid="true"] {
+  border-color: var(--bad);
+}
+textarea.ss-input {
+  padding: 10px 12px;
+  min-height: 0;
+  line-height: 1.5;
+  resize: vertical;
+}
+select.ss-input {
+  padding-right: 28px;
+}
+.ss-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  min-width: 0;
+}
+.ss-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+.ss-fields > .ss-label {
+  flex: 1 1 200px;
+}
+.ss-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* a segmented control */
+.ss-seg {
+  align-self: flex-start;
+  max-width: 100%;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.ss-seg button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--dim);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ss-seg button:hover {
+  color: var(--fg);
+}
+.ss-seg button[aria-pressed="true"],
+.ss-seg button[aria-checked="true"] {
+  background: var(--accent-soft);
+  color: var(--fg);
+}
+.ss-seg button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* a switch, and a whole row that switches */
+.ss-track {
+  flex: none;
+  position: relative;
+  width: 40px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--rail);
+  transition: background 0.15s;
+}
+.ss-track > span {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  background: #ffffff;
+  transition: left 0.15s;
+}
+.ss-track.on {
+  background: var(--accent);
+}
+.ss-track.on > span {
+  left: 19px;
+}
+.ss-sw {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+.ss-swrow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  min-height: 56px;
+  padding: 10px 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+.ss-swrow-l {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ss-swrow-t {
+  font-weight: 500;
+}
+.ss-sw:disabled,
+.ss-swrow:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* radio cards */
+.ss-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.ss-opts.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+.ss-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+.ss-opts.grid .ss-opt {
+  padding: 14px 16px;
+  border-radius: 12px;
+}
+.ss-opt[aria-checked="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.ss-opt:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.ss-radio {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-top: 3px;
+  border: 2px solid var(--rail);
+  border-radius: 8px;
+}
+.ss-radio > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+}
+.ss-opt[aria-checked="true"] .ss-radio {
+  border-color: var(--accent);
+}
+.ss-opt[aria-checked="true"] .ss-radio > span {
+  background: var(--accent);
+}
+.ss-opt-t {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ss-opt-t > b {
+  font-weight: 500;
+}
+.ss-opts.grid .ss-opt-t > b {
+  font-weight: 600;
+}
+.ss-opt-s {
+  flex: none;
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--dim);
+}
+.ss-opt-s.ok {
+  color: var(--ok);
+}
+
+/* a section that folds (General) */
+.ss-foldcard {
+  padding: 4px 20px;
+}
+.ss-fold {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 60px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+.ss-fold-a {
+  color: var(--dim);
+  width: 14px;
+  font-size: 14px;
+  flex: none;
+}
+.ss-fold-t {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ss-fold-h {
+  font-size: 16px;
+  font-weight: 600;
+}
+.ss-fold-b {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 8px;
+  min-width: 0;
+}
+
+/* a setting: its name and help on the left, the control on the right */
+.ss-set {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 24px;
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+  min-width: 0;
+}
+.ss-set-l {
+  flex: 1 1 280px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ss-set-l > .ss-title-row > b,
+.ss-set-l > b {
+  font-weight: 500;
+}
+.ss-set-c {
+  flex: 1 1 280px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.ss-set-c .ss-input {
+  width: 100%;
+  max-width: 380px;
+}
+.ss-set.is-warn .ss-help,
+.ss-help.is-warn {
+  color: var(--warn);
+}
+.ss-set-src {
+  color: var(--dim);
+  font-size: 12px;
+}
+.ss-ideas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ss-ideas button {
+  min-height: 30px;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--dim);
+  font: 12px var(--f-mono);
+  cursor: pointer;
+}
+.ss-ideas button:hover {
+  color: var(--fg);
+}
+.ss-subhead {
+  padding: 14px 0 4px;
+  font-weight: 600;
+  border-top: 1px solid var(--border);
+}
+.ss-scope {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ss-scopebar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  font-size: 13px;
+}
+.ss-scopebar > span:first-child {
+  flex: 1 1 260px;
+}
+.ss-save {
+  color: var(--dim);
+  font-size: 12px;
+}
+.ss-save.s-error {
+  color: var(--bad);
+}
+.ss-save.s-saved {
+  color: var(--ok);
+}
+.ss-dl {
+  display: grid;
+  grid-template-columns: minmax(120px, max-content) 1fr;
+  gap: 8px 16px;
+  margin: 0;
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+.ss-dl dt {
+  color: var(--dim);
+}
+.ss-dl dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ss-cols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 32px;
+}
+.ss-cols > div {
+  flex: 1 1 300px;
+  min-width: 0;
+}
+.ss-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* a model's row (Models & logins): the picker and the effort */
+.ss-model {
+  flex: 1 1 360px;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.ss-model .model-picker {
+  flex: 0 1 auto;
+}
+
+/* tables */
+.ss-tablewrap {
+  overflow-x: auto;
+}
+.ss-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.ss-table th {
+  padding: 10px 16px;
+  text-align: left;
+  color: var(--dim);
+  font-size: 13px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.ss-table td {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.ss-table tr:last-child td {
+  border-bottom: 0;
+}
+
+/* numbered steps (a login) */
+.ss-steps {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ss-step {
+  display: flex;
+  gap: 14px;
+}
+.ss-step-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: none;
+}
+.ss-step-n {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 14px;
+  border: 2px solid var(--rail);
+  color: var(--dim);
+  font-size: 13px;
+  font-weight: 600;
+}
+.ss-step-line {
+  flex: 1;
+  width: 2px;
+  min-height: 16px;
+  background: var(--border);
+}
+.ss-step-b {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 3px 0 20px;
+}
+.ss-step-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--dim);
+}
+.ss-step-h b {
+  font-weight: 600;
+}
+.ss-step.s-now .ss-step-n {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.ss-step.s-now .ss-step-h,
+.ss-step.s-done .ss-step-h,
+.ss-step.s-failed .ss-step-h {
+  color: var(--fg);
+}
+.ss-step.s-done .ss-step-n {
+  border-color: var(--ok);
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.ss-step.s-done .ss-step-line {
+  background: var(--ok);
+}
+.ss-step.s-failed .ss-step-n {
+  border-color: var(--bad);
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+.ss-step .ss-meta {
+  font-size: 12px;
+}
+.ss-code {
+  padding: 8px 16px;
+  border: 1px dashed var(--rail);
+  border-radius: 8px;
+  font: 600 22px var(--f-mono);
+  letter-spacing: 3px;
+}
+.ss-way {
+  margin-bottom: 4px;
+}
+
+/* a provider, a plugin: the row and what opens under it */
+.ss-prow {
+  border-top: 1px solid var(--border);
+}
+.ss-prow.open {
+  background: var(--bg);
+}
+.ss-prow-b {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  padding: 4px 20px 20px clamp(20px, 4vw, 68px);
+  min-width: 0;
+}
+.ss-prow-b > * {
+  min-width: 0;
+}
+.ss-pname {
+  flex: 1 1 200px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+.ss-pname > b {
+  font-weight: 600;
+}
+.ss-pstate {
+  flex: 1 1 200px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.ss-arrow {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+}
+.ss-arrow:hover {
+  background: var(--panel-2);
+}
+.ss-chipline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ss-chipline .ss-tag {
+  min-height: 32px;
+  font-size: 13px;
+}
+.ss-chipline .ss-tag.no {
+  color: var(--warn);
+}
+
+/* Budget: the providers' cards, the month's numbers, the chart and the accounts */
+.ss-ucards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+.ss-ucard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  min-width: 0;
+}
+.ss-ucard-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ss-ucard-h b {
+  flex: 1;
+  font-weight: 600;
+}
+.ss-swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  display: inline-block;
+}
+.ss-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+.ss-bar > i {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--ok);
+}
+.ss-bar.t-warn > i {
+  background: var(--warn);
+}
+.ss-bar.t-bad > i {
+  background: var(--bad);
+}
+.ss-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+.ss-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.ss-kpi b {
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.ss-split {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  min-width: 0;
+}
+.ss-split > .wide {
+  flex: 3 1 420px;
+}
+.ss-split > .narrow {
+  flex: 2 1 300px;
+}
+.ss-split > .half {
+  flex: 1 1 360px;
+}
+.ss-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dim);
+  font-size: 12px;
+}
+.ss-chart {
+  display: flex;
+  gap: 8px;
+}
+.ss-chart-y {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 200px;
+  padding-bottom: 22px;
+  color: var(--dim);
+  font-size: 12px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  box-sizing: border-box;
+}
+.ss-chart-p {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 200px;
+  padding-bottom: 22px;
+  box-sizing: border-box;
+}
+.ss-chart-grid {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px solid var(--border);
+  pointer-events: none;
+}
+.ss-chart-p > button {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 6px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 0;
+  border: 0;
+  border-radius: 3px 3px 0 0;
+  background: transparent;
+  cursor: pointer;
+}
+.ss-chart-p > button[aria-pressed="true"] {
+  background: var(--panel-2);
+}
+.ss-chart-p > button > span.seg {
+  display: block;
+}
+.ss-chart-p > button > span.lab {
+  position: absolute;
+  left: 50%;
+  bottom: -20px;
+  transform: translateX(-50%);
+  color: var(--dim);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.sw-claude {
+  background: var(--accent);
+}
+.sw-codex {
+  background: #4fb3bf;
+}
+.sw-copilot {
+  background: #e58fb0;
+}
+.sw-fake,
+.sw-api {
+  background: var(--faint);
+}
+:root[data-theme="light"] .sw-codex {
+  background: #1f8a96;
+}
+:root[data-theme="light"] .sw-copilot {
+  background: #c0507c;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .sw-codex {
+    background: #1f8a96;
+  }
+  :root:not([data-theme="dark"]) .sw-copilot {
+    background: #c0507c;
+  }
+}
+.ss-acct {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+}
+.ss-acct-cap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ss-acct-cap .ss-bar {
+  flex: 1;
+}
+
+/* Devices: the QR code and its facts */
+.ss-qr {
+  flex: none;
+  width: 200px;
+  min-height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #ffffff;
+  color: #5c5b57;
+  text-align: center;
+  font-size: 13px;
+}
+.ss-qr svg,
+.ss-qr img,
+.ss-qr canvas {
+  max-width: 100%;
+  height: auto;
+}
+.ss-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px 16px;
+  margin: 0;
+  font-size: 14px;
+}
+.ss-facts dt {
+  color: var(--dim);
+}
+.ss-facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ss-devcode {
+  font: 600 18px var(--f-mono);
+  letter-spacing: 2px;
+}
+
+/* Plugins: the underline tabs */
+.ss-utabs {
+  scrollbar-width: none;
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+}
+.ss-utabs button {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--dim);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ss-utabs button[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--fg);
+}
+.ss-utabs button:hover {
+  color: var(--fg);
+}
+
+/* a drawer of the Settings page: the header's close is an ×, the footer on the right */
+.drawer.ss-drawer > header h2 {
+  font-size: 18px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--fg);
+}
+.drawer.ss-drawer .body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+@media (max-width: 600px) {
+  .ss-cardp {
+    padding: 16px;
+  }
+  .ss-row0,
+  .ss-row {
+    padding: 12px 16px;
+  }
+  .ss-foldcard {
+    padding: 4px 16px;
+  }
+  .ss-prow-b {
+    padding: 4px 16px 16px;
+  }
+  .ss-acct {
+    padding: 12px 16px;
+  }
+  .ss-qr {
+    width: 100%;
+    max-width: 240px;
+  }
+}
+
+/* a model's row inside a setting's control column: its own height, its notes wrap */
+.ss-set-c > .ss-model {
+  flex: none;
+  width: 100%;
+}
+.ss-model .hint {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.ss-model .model-picker {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.ss-model select,
+.ss-prow-b select {
+  min-height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  padding: 0 8px;
+}

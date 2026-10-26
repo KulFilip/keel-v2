@@ -1,6 +1,6 @@
 // Rule packs in the marketplace (docs/plugins/23-rules-in-marketplace.md §3): the kind switch's third kind (Plugins ·
 // Workflows · Rules, ?kind=rules), the Rules view's cards (the review in short, Install / Installed here / Update / the
-// "edited" note) and its note when no catalog answers, a pack's page (#/plugins/rules/<name>: every rule in a table and
+// "edited" note) and its note when no catalog answers, a pack's page (#/settings/plugins/rules/<name>: every rule in a table and
 // who enforces it, from the api), install into the project, update (asks before it replaces a copy changed here),
 // remove, Open in Rules, and a pack whose signature keel refuses.
 
@@ -29,25 +29,25 @@ const installed = (edited: boolean): RulePack => ({
 describe("Control › Plugins › Marketplace: Plugins · Workflows · Rules", () => {
   it("Rules keeps ?tab=market and adds ?kind=rules; the search names the project", async () => {
     const user = userEvent.setup();
-    open("#/plugins?tab=market");
+    open("#/settings/plugins?tab=market");
     const kinds = await screen.findByRole("group", { name: "What to find" });
     expect(within(kinds).getAllByRole("button").map((b) => b.textContent)).toEqual(["Plugins", "Workflows", "Rules", "Skills", "Stacks"]);
     await user.click(within(kinds).getByRole("button", { name: "Rules" }));
-    await waitFor(() => expect(location.hash).toBe("#/plugins?tab=market&kind=rules"));
+    await waitFor(() => expect(location.hash).toBe("#/settings/plugins?tab=market&kind=rules"));
     expect(await card("No new dependencies")).toBeInTheDocument();
     expect(within(kinds).getByRole("button", { name: "Rules" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByRole("article", { name: "Database plugin" })).toBeNull();
     expect(screen.getByText(/Rule packs made by keel and the community/)).toBeInTheDocument();
     expect(db.mr.searches[0]).toEqual({ q: "", category: "", project: "ludus-engine" });
     await user.click(within(kinds).getByRole("button", { name: "Workflows" }));
-    await waitFor(() => expect(location.hash).toBe("#/plugins?tab=market&kind=workflows"));
+    await waitFor(() => expect(location.hash).toBe("#/settings/plugins?tab=market&kind=workflows"));
   });
 });
 
 describe("Marketplace › Rules: the cards", () => {
   it("shows the publisher, the version, the summary, the review in short, and Install / Installed here / Update / edited", async () => {
     db.rules.installed = [installed(true)];
-    open("#/plugins?tab=market&kind=rules");
+    open("#/settings/plugins?tab=market&kind=rules");
     const deps = await card("No new dependencies");
     expect(deps).toHaveTextContent("keel");
     expect(within(deps).getByTitle("Verified publisher")).toBeInTheDocument();
@@ -56,7 +56,7 @@ describe("Marketplace › Rules: the cards", () => {
     expect(within(deps).getByText("3 rules · bash 1 · edit 2 · every phase")).toBeInTheDocument();
     expect(within(deps).getByText("web lane")).toBeInTheDocument();
     expect(within(deps).getByRole("button", { name: "Install No new dependencies" })).toBeEnabled();
-    expect(within(deps).getByRole("link", { name: "No new dependencies" })).toHaveAttribute("href", "#/plugins/rules/no-new-dependencies");
+    expect(within(deps).getByRole("link", { name: "No new dependencies" })).toHaveAttribute("href", "#/settings/plugins/rules/no-new-dependencies");
 
     const git = await card("Strict git");
     expect(git).toHaveTextContent("community");
@@ -74,7 +74,7 @@ describe("Marketplace › Rules: the cards", () => {
 
   it("installs from a card into this project, and the card says Installed here", async () => {
     const user = userEvent.setup();
-    open("#/plugins?tab=market&kind=rules");
+    open("#/settings/plugins?tab=market&kind=rules");
     await user.click(within(await card("No new dependencies")).getByRole("button", { name: "Install No new dependencies" }));
     const dlg = await screen.findByRole("dialog", { name: "Install No new dependencies 1.1.0?" });
     expect(dlg).toHaveTextContent(".keel/rules/no-new-dependencies.yaml");
@@ -92,7 +92,7 @@ describe("Marketplace › Rules: the cards", () => {
 
   it("with no rule pack catalog: a clear note, never an empty page", async () => {
     db.mr.down = true;
-    open("#/plugins?tab=market&kind=rules");
+    open("#/settings/plugins?tab=market&kind=rules");
     const note = await screen.findByRole("note", { name: "No rule pack catalog" });
     expect(note).toHaveTextContent("No rule pack catalog answers yet.");
     expect(within(note).getByRole("link", { name: "Build › Rules" })).toHaveAttribute("href", "#/rules");
@@ -101,7 +101,7 @@ describe("Marketplace › Rules: the cards", () => {
 
   it("searches, and the category chips narrow the list", async () => {
     const user = userEvent.setup();
-    open("#/plugins?tab=market&kind=rules");
+    open("#/settings/plugins?tab=market&kind=rules");
     await card("No new dependencies");
     await user.click(screen.getByRole("button", { name: "Git" }));
     await waitFor(() => expect(screen.queryByRole("article", { name: "No new dependencies rule pack" })).toBeNull());
@@ -115,10 +115,10 @@ describe("Marketplace › Rules: the cards", () => {
 
 describe("A rule pack's page", () => {
   it("lists every rule (kind, match, how, phases, lanes, except, reason) and who enforces it, from the api", async () => {
-    open("#/plugins/rules/no-new-dependencies");
+    open("#/settings/plugins/rules/no-new-dependencies");
     expect(await screen.findByRole("heading", { name: "No new dependencies", level: 1 })).toBeInTheDocument();
     const crumb = screen.getByRole("navigation", { name: "Breadcrumb" });
-    expect(within(crumb).getByRole("link", { name: "Rules" })).toHaveAttribute("href", "#/plugins?tab=market&kind=rules");
+    expect(within(crumb).getByRole("link", { name: "Rules" })).toHaveAttribute("href", "#/settings/plugins?tab=market&kind=rules");
     expect(screen.getByText("rule pack")).toBeInTheDocument();
     const table = screen.getByRole("table", { name: "Rules of No new dependencies" });
     const rows = within(table).getAllByRole("row").slice(1);
@@ -158,7 +158,7 @@ describe("A rule pack's page", () => {
 
   it("installs an older version into this project", async () => {
     const user = userEvent.setup();
-    open("#/plugins/rules/no-new-dependencies");
+    open("#/settings/plugins/rules/no-new-dependencies");
     await user.click(await screen.findByRole("button", { name: "Install 1.1.0" }));
     const dlg = await screen.findByRole("dialog", { name: "Install No new dependencies 1.1.0?" });
     await user.selectOptions(within(dlg).getByLabelText("Version"), "1.0.0");
@@ -173,7 +173,7 @@ describe("A rule pack's page", () => {
   it("an update of a copy changed here asks: keep my copy (the default) or replace it", async () => {
     const user = userEvent.setup();
     db.rules.installed = [installed(true)];
-    open("#/plugins/rules/strict-git");
+    open("#/settings/plugins/rules/strict-git");
     expect(await screen.findByText("Installed here 1.0.0")).toBeInTheDocument();
     expect(screen.getByText("edited")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Update to 1.2.0" }));
@@ -196,7 +196,7 @@ describe("A rule pack's page", () => {
   it("an unchanged copy updates with replace at once; Remove deletes the pack file", async () => {
     const user = userEvent.setup();
     db.rules.installed = [installed(false)];
-    open("#/plugins/rules/strict-git");
+    open("#/settings/plugins/rules/strict-git");
     await user.click(await screen.findByRole("button", { name: "Update to 1.2.0" }));
     const dlg = await screen.findByRole("dialog", { name: "Update Strict git to 1.2.0?" });
     expect(within(dlg).queryByRole("radio")).toBeNull();
@@ -213,14 +213,14 @@ describe("A rule pack's page", () => {
 
   it("a pack whose signature keel refuses: the page says why and Install is off", async () => {
     db.mr.badSignature = "no-new-dependencies";
-    open("#/plugins/rules/no-new-dependencies");
+    open("#/settings/plugins/rules/no-new-dependencies");
     expect(await screen.findByRole("alert")).toHaveTextContent("does not match its publisher's key");
     expect(screen.getByRole("button", { name: "Install 1.1.0" })).toBeDisabled();
     expect(screen.queryByRole("table", { name: /Rules of/ })).toBeNull();
   });
 
   it("a pack for a newer keel is refused, with the reason", async () => {
-    open("#/plugins/rules/future-pack");
+    open("#/settings/plugins/rules/future-pack");
     expect(await screen.findByRole("note")).toHaveTextContent("needs keel >=9.0.0");
     expect(screen.getByRole("button", { name: /^Install/ })).toBeDisabled();
   });

@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { errorParts } from "../../api";
-import { ErrorBox, PageHead, Pill, Tabs } from "../../components/ui";
+import { ErrorBox, Pill } from "../../components/ui";
 import { marketApi, pendingOf, sourcesOf, updateOf } from "../../marketplaceApi";
-import { queryValue } from "../../routes";
+import { queryValue, settingsHash } from "../../routes";
+import { SettingsFrame } from "../settings/frame";
 import { type PageProps } from "../../sdk/registry";
 import { useApp, useLoad, useRoute } from "../../state";
 import { PluginDetailPage, titleOf, type Err } from "../PluginDetail";
@@ -40,21 +41,24 @@ const SUB_STACKS =
 const SUB_SKILLS =
   "Skills made by keel and the community: know-how an agent reads before it works. One installs into a project, for the agents you pick. keel checks its signature and shows all of it first.";
 
-export function PluginsPage(_props: PageProps) {
+/** keel 0.18.57 the tab's own link (#/settings/plugins); an old #/plugins link opens it too. */
+export const PLUGINS_HASH = settingsHash("plugins");
+
+export function PluginsPage({ rest }: PageProps & { rest?: string }) {
   const route = useRoute();
-  // #/plugins/<name>: the router hands a keel-wide page no arg, so the page reads its own link
-  const arg = route.arg;
+  // #/settings/plugins/<name>: the Settings page hands the rest of its link (the router hands a keel-wide page no arg)
+  const arg = rest;
   const { toast } = useApp();
   const setId = queryValue(route, "set");
   const view = useLoad("plugins", () => marketApi.installed());
-  // #/plugins?tab=market (the core welcome's "Open the marketplace", the menu's "+ Add pages"), tab=installed|sources
+  // #/settings/plugins?tab=market (the core welcome's "Open the marketplace", the menu's "+ Add pages"), tab=installed|sources
   const asked = queryValue(route, "tab");
   const linked: Tab | null =
     asked === "market" || asked === "installed" || asked === "sources"
       ? asked
       : null;
   const [tab, setTab] = useState<Tab>(linked ?? "installed");
-  // the Marketplace's kind: #/plugins?tab=market&kind=workflows|rules (the link is the truth)
+  // the Marketplace's kind: #/settings/plugins?tab=market&kind=workflows|rules (the link is the truth)
   const askedKind = queryValue(route, "kind");
   const kind: MarketKind =
     askedKind === "workflows" || askedKind === "rules" || askedKind === "skills" || askedKind === "stacks" ? askedKind : "plugins";
@@ -74,7 +78,7 @@ export function PluginsPage(_props: PageProps) {
 
   const back = (t: Tab) => {
     setTab(t);
-    if (location.hash !== "#/plugins") location.hash = "#/plugins";
+    if (location.hash !== PLUGINS_HASH) location.hash = PLUGINS_HASH;
   };
   // "Check for updates": read the catalogs again, then show what has an update
   const check = async () => {
@@ -105,24 +109,24 @@ export function PluginsPage(_props: PageProps) {
       onClose={() => setPlan(null)}
       onDone={() => {
         void view.reload();
-        if (setId) location.hash = "#/plugins";
+        if (setId) location.hash = PLUGINS_HASH;
       }}
     />
   );
 
-  // #/plugins/stacks/<name>: a stack of the marketplace, or keel's own
+  // #/settings/plugins/stacks/<name>: a stack of the marketplace, or keel's own
   if (arg?.startsWith("stacks/"))
     return <MarketStackPage key={arg} name={arg.slice("stacks/".length)} />;
 
-  // #/plugins/skills/<name>: a skill of the marketplace, or keel's own
+  // #/settings/plugins/skills/<name>: a skill of the marketplace, or keel's own
   if (arg?.startsWith("skills/"))
     return <MarketSkillPage key={arg} name={arg.slice("skills/".length)} />;
 
-  // #/plugins/rules/<name>: a rule pack of the marketplace
+  // #/settings/plugins/rules/<name>: a rule pack of the marketplace
   if (arg?.startsWith("rules/"))
     return <MarketRulePackPage key={arg} name={arg.slice("rules/".length)} />;
 
-  // #/plugins/workflow/<name>: a workflow of the marketplace (a plugin's name never has a "/")
+  // #/settings/plugins/workflow/<name>: a workflow of the marketplace (a plugin's name never has a "/")
   if (arg?.startsWith("workflow/"))
     return (
       <MarketWorkflowPage
@@ -156,105 +160,59 @@ export function PluginsPage(_props: PageProps) {
       </>
     );
 
+  const sub =
+    tab === "market" && kind === "workflows" ? SUB_WORKFLOWS
+      : tab === "market" && kind === "rules" ? SUB_RULES
+        : tab === "market" && kind === "skills" ? SUB_SKILLS
+          : tab === "market" && kind === "stacks" ? SUB_STACKS
+            : SUB[tab];
+  const TABS: [Tab, string][] = [
+    ["installed", count === undefined ? "Installed" : `Installed (${count})`],
+    ["market", "Marketplace"],
+    ["sources", "Sources and rules"],
+  ];
   return (
-    <>
-      <PageHead
-        title="Plugins"
-        sub={
-          <>
-            {tab === "market" && kind === "workflows"
-            ? SUB_WORKFLOWS
-            : tab === "market" && kind === "rules"
-              ? SUB_RULES
-              : tab === "market" && kind === "skills"
-                ? SUB_SKILLS
-                : tab === "market" && kind === "stacks"
-                  ? SUB_STACKS
-                  : SUB[tab]}
-            <span className="mk-intro">
-              Everything is on by default, like 0.16.1. Start with fewer
-              plugins: <code>keel2 start --core</code>.
-            </span>
-          </>
-        }
-        actions={
-          tab === "installed" ? (
-            <>
-              <button
-                className="btn"
-                type="button"
-                disabled={checking}
-                onClick={() => void check()}
-              >
-                {checking ? "Checking…" : "Check for updates"}
-              </button>
-              <button
-                className="btn primary"
-                type="button"
-                onClick={() => setTab("market")}
-              >
-                Browse marketplace
-              </button>
-            </>
-          ) : tab === "market" ? (
-            <CatalogLine onSources={() => setTab("sources")} />
-          ) : undefined
-        }
-      />
+    <SettingsFrame tab="plugins" title="Plugins"
+      line="Plugins add pages, tools and workflows to keel. keel checks each one's signature before it installs it."
+      actions={
+        <>
+          <button className="ss-btn" type="button" disabled={checking} onClick={() => void check()}>
+            {checking ? "Checking…" : "Check for updates"}
+          </button>
+          <button className="ss-btn p" type="button" onClick={() => setTab("market")}>Browse the marketplace</button>
+        </>
+      }
+      after={dialog}>
       {err && <ErrorBox error={err} />}
-      {view.data && (
-        <RestartBanner view={view.data} onDone={() => void view.reload()} />
-      )}
+      {view.data && <RestartBanner view={view.data} onDone={() => void view.reload()} />}
       {setId && (
-        <SetOffer
-          id={setId}
-          view={view.data}
-          onInstall={(p) => setPlan(p)}
-          onClose={() => {
-            location.hash = "#/plugins";
-          }}
-        />
+        <SetOffer id={setId} view={view.data} onInstall={(p) => setPlan(p)} onClose={() => { location.hash = PLUGINS_HASH; }} />
       )}
-      <div className="mk-tabsrow">
-        <Tabs<Tab>
-          value={tab}
-          onChange={setTab}
-          label="Plugins"
-          options={[
-            [
-              "installed",
-              count === undefined ? "Installed" : `Installed (${count})`,
-            ],
-            ["market", "Marketplace"],
-            ["sources", "Sources and rules"],
-          ]}
-        />
-        {waiting > 0 && (
-          <Pill tone="warn">{waiting} waiting for restart</Pill>
-        )}
+      <div className="ss-inline" style={{ alignItems: "flex-end" }}>
+        <div className="ss-utabs" role="tablist" aria-label="Plugins" style={{ flex: 1 }}>
+          {TABS.map(([k, l]) => (
+            <button key={k} role="tab" type="button" aria-selected={tab === k} onClick={() => setTab(k)}>{l}</button>
+          ))}
+        </div>
+        {waiting > 0 && <Pill tone="warn">{waiting} waiting for restart</Pill>}
       </div>
+      <p className="ss-sub">
+        {sub} <span className="mk-intro">Everything is on by default, like 0.16.1. Start with fewer plugins: <code>keel2 start --core</code>.</span>
+      </p>
       <div className="mk-tab">
         {tab === "installed" && <InstalledTab view={view} />}
+        {tab === "market" && <CatalogLine onSources={() => setTab("sources")} />}
         {tab === "market" && <KindSwitch kind={kind} />}
-        {tab === "market" && kind === "workflows" && (
-          <WorkflowsMarket view={view.data} />
-        )}
+        {tab === "market" && kind === "workflows" && <WorkflowsMarket view={view.data} />}
         {tab === "market" && kind === "rules" && <RulesMarket />}
         {tab === "market" && kind === "skills" && <SkillsMarket />}
         {tab === "market" && kind === "stacks" && <StacksMarket />}
         {tab === "market" && kind === "plugins" && (
-          <MarketTab
-            view={view.data}
-            onInstall={(name) => setPlan({ install: [name] })}
-            onChanged={() => void view.reload()}
-          />
+          <MarketTab view={view.data} onInstall={(name) => setPlan({ install: [name] })} onChanged={() => void view.reload()} />
         )}
-        {tab === "sources" && (
-          <SourcesTab onChanged={() => void view.reload()} />
-        )}
+        {tab === "sources" && <SourcesTab onChanged={() => void view.reload()} />}
       </div>
-      {dialog}
-    </>
+    </SettingsFrame>
   );
 }
 

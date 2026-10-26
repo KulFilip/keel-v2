@@ -162,11 +162,11 @@ describe("Settings › Devices", () => {
     expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
   });
 
-  it("is a section of the Settings page", async () => {
-    location.hash = "#/settings";
+  it("is a tab of the Settings page, with Pair a phone as its button", async () => {
+    location.hash = "#/settings/devices";
     render(<App />);
     expect(
-      await screen.findByRole("heading", { name: "Devices" }),
+      await screen.findByRole("heading", { level: 1, name: "Devices" }),
     ).toBeInTheDocument();
     expect(
       await screen.findByRole("button", { name: "Pair a phone" }),

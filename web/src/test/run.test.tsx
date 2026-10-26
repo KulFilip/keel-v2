@@ -235,7 +235,7 @@ describe("shell", () => {
     await user.click(menu);
     const sheet = await screen.findByRole("dialog", { name: "Menu" });
     const nav = within(sheet).getByRole("navigation", { name: "All screens" });
-    expect(within(nav).getByRole("link", { name: /^Budget/ })).toHaveAttribute("href", "#/budget");
+    expect(within(nav).getByRole("link", { name: /^Settings/ })).toHaveAttribute("href", "#/settings");
     expect(within(nav).getByRole("link", { name: /^Flow/ })).toHaveFocus();
     expect(within(sheet).getByTestId("live")).toBeInTheDocument();
     const before = document.documentElement.dataset.theme;

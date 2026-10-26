@@ -4,7 +4,7 @@
 //   Marketplace › Skills      search, the category chips, keel's own skills ("From keel": in every project, the card
 //                             says which agents load it and puts it on more) and the catalogs' (Install / Installed
 //                             here (+ "edited") / Update to x). No catalog: a note that says so; keel's own still show
-//   #/plugins/skills/<name>   a skill's page: its SKILL.md (as published, verified), keel's review (size, sections, what
+//   #/settings/plugins/skills/<name>   a skill's page: its SKILL.md (as published, verified), keel's review (size, sections, what
 //                             it is for), versions, checks; Install into this project with the agents to load it,
 //                             Update (asks before it replaces a copy changed here), Agents…, Remove, Open in Skills
 //
@@ -279,7 +279,7 @@ export function SkillsMarket() {
                 </span>
               )}
               <span className="row" style={{ marginTop: 8 }}>
-                <a className="btn sm" href="#/plugins?tab=sources" style={{ textDecoration: "none" }}>
+                <a className="btn sm" href="#/settings/plugins?tab=sources" style={{ textDecoration: "none" }}>
                   Sources and rules
                 </a>
                 <a className="btn sm" href="#/skills" style={{ textDecoration: "none" }}>
@@ -545,7 +545,7 @@ export function MarketSkillPage({ name }: { name: string }) {
   const w: MarketSkill | null = r.data;
   const crumb = (
     <nav className="mk-crumb" aria-label="Breadcrumb">
-      <a href="#/plugins">Plugins</a>
+      <a href="#/settings/plugins">Plugins</a>
       <span aria-hidden="true">›</span>
       <a href={MARKET_SKILLS}>Skills</a>
       <span aria-hidden="true">›</span>

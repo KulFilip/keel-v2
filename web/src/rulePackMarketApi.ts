@@ -166,6 +166,6 @@ export function whoEnforces(r: ReadRule, engines?: EngineInfo[]): { before: stri
 }
 
 /** A pack's page in Control › Plugins. */
-export const packHref = (name: string) => `#/plugins/rules/${encodeURIComponent(name)}`;
+export const packHref = (name: string) => `#/settings/plugins/rules/${encodeURIComponent(name)}`;
 /** The Marketplace tab with the Rules view. */
-export const MARKET_RULES = "#/plugins?tab=market&kind=rules";
+export const MARKET_RULES = "#/settings/plugins?tab=market&kind=rules";

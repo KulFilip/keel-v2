@@ -52,7 +52,10 @@ function isDark(): boolean {
   }
 }
 
-/** The saved theme, and a switch between light and dark. */
+const THEME_EVENT = "keel2:theme";
+
+/** The saved theme, and a switch between light and dark. keel 0.18.57: Settings › This browser sets it too, so every
+ *  place that shows it follows (the menu's switch and the Settings tab). */
 export function useTheme() {
   const [dark, setDark] = useState(false);
   useEffect(() => {
@@ -62,9 +65,11 @@ export function useTheme() {
       /* ignore */
     }
     setDark(isDark());
+    const on = () => setDark(isDark());
+    window.addEventListener(THEME_EVENT, on);
+    return () => window.removeEventListener(THEME_EVENT, on);
   }, []);
-  const toggle = () => {
-    const next = isDark() ? "light" : "dark";
+  const set = (next: "light" | "dark") => {
     applyTheme(next);
     setDark(next === "dark");
     try {
@@ -72,8 +77,10 @@ export function useTheme() {
     } catch {
       /* ignore */
     }
+    window.dispatchEvent(new Event(THEME_EVENT));
   };
-  return { dark, toggle };
+  const toggle = () => set(isDark() ? "light" : "dark");
+  return { dark, toggle, set };
 }
 
 export function Bell({ onClick }: { onClick: () => void }) {

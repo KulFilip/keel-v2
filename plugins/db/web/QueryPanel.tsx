@@ -102,7 +102,7 @@ export function QueryPanel({ pid }: { pid: string }) {
     return (
       <section className="panel qp" aria-label="Query">
         <div className="panel-body sub">
-          No database connection yet: add one in Connections › Databases, then
+          No database connection yet: add one in Settings › Databases, then
           query it here.
         </div>
       </section>

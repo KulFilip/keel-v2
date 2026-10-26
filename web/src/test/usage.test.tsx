@@ -50,8 +50,8 @@ describe("Usage dashboard", () => {
     location.hash = "#/budget";
     render(<App />);
     expect(await main().findByText("No provider is set up yet")).toBeInTheDocument();
-    expect(main().getByRole("link", { name: "Open Connections" })).toHaveAttribute("href", "#/connections");
-    expect(document.querySelector(".ustrip")).toBeNull();
+    expect(main().getByRole("link", { name: "Open Models & logins" })).toHaveAttribute("href", "#/settings/models");
+    expect(main().queryByLabelText("Provider usage")).toBeNull();
   });
 
   it("the card line for Copilot and API keys, and the time words", () => {

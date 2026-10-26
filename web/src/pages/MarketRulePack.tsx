@@ -4,7 +4,7 @@
 //   Marketplace › Rules       search, the category chips, cards (icon, title, publisher ✓ / community, version, summary,
 //                             "3 rules · bash 1 · edit 2 · every phase") and Install / Installed here (+ "edited") /
 //                             Update to x. No catalog: a note that says so, never an empty page
-//   #/plugins/rules/<name>    a pack's page: every rule in a table (kind, what it matches, how, phases, lanes, except,
+//   #/settings/plugins/rules/<name>    a pack's page: every rule in a table (kind, what it matches, how, phases, lanes, except,
 //                             the reason) and who enforces it (before the action / after the step, from the api: the
 //                             engines' real support), requires, versions, checks, the YAML (folded); Install into this
 //                             project, Update (asks before it replaces a copy changed here), Remove, Open in Rules
@@ -205,7 +205,7 @@ export function RulesMarket() {
               </span>
             ))}
           <span className="row" style={{ marginTop: 8 }}>
-            <a className="btn sm" href="#/plugins?tab=sources" style={{ textDecoration: "none" }}>
+            <a className="btn sm" href="#/settings/plugins?tab=sources" style={{ textDecoration: "none" }}>
               Sources and rules
             </a>
             <a className="btn sm" href="#/rules" style={{ textDecoration: "none" }}>
@@ -591,7 +591,7 @@ export function MarketRulePackPage({ name }: { name: string }) {
   const w: MarketRulePack | null = r.data;
   const crumb = (
     <nav className="mk-crumb" aria-label="Breadcrumb">
-      <a href="#/plugins">Plugins</a>
+      <a href="#/settings/plugins">Plugins</a>
       <span aria-hidden="true">›</span>
       <a href={MARKET_RULES}>Rules</a>
       <span aria-hidden="true">›</span>

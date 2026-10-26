@@ -18,7 +18,7 @@ describe("Connections: agents still on the fake model (B8a)", () => {
   it("a logged-in Claude with a fake default model says so and Use Claude for all agents sets the three models", async () => {
     server.use(http.get("/api/connections", () => HttpResponse.json(loggedIn())));
     const user = userEvent.setup();
-    location.hash = "#/connections";
+    location.hash = "#/settings/models";
     render(<App />);
     const note = await screen.findByRole("note");
     expect(note).toHaveTextContent("Claude is logged in, but the default model still uses the fake model");
@@ -33,7 +33,7 @@ describe("Connections: agents still on the fake model (B8a)", () => {
 
   it("no note while the provider has no login", async () => {
     render(<App />);
-    location.hash = "#/connections";
+    location.hash = "#/settings/models";
     await screen.findByLabelText(/Claude login token/);
     expect(screen.queryByRole("note")).toBeNull();
   });

@@ -113,17 +113,17 @@ describe("Build › Stacks", () => {
 describe("Marketplace › Stacks", () => {
   it("lists keel's own and the catalogs', opens one, installs it, then it is a stack of the project", async () => {
     const user = userEvent.setup();
-    open("#/plugins?tab=market");
+    open("#/settings/plugins?tab=market");
     const kinds = await screen.findByRole("group", { name: "What to find" });
     await user.click(within(kinds).getByRole("button", { name: "Stacks" }));
-    await waitFor(() => expect(location.hash).toBe("#/plugins?tab=market&kind=stacks"));
+    await waitFor(() => expect(location.hash).toBe("#/settings/plugins?tab=market&kind=stacks"));
     expect(screen.getByText(/Stacks made by keel and the community/)).toBeInTheDocument();
     const go = await screen.findByRole("article", { name: "go stack" });
     expect(within(screen.getByRole("region", { name: "From keel" })).getByRole("article", { name: "go stack" })).toBe(go);
     const zig = await screen.findByRole("article", { name: "Zig stack" });
     expect(zig).toHaveTextContent("api · 1 layer · 1 command · 1 tool");
     await user.click(within(zig).getByRole("link", { name: "Zig" }));
-    await waitFor(() => expect(location.hash).toBe("#/plugins/stacks/zig"));
+    await waitFor(() => expect(location.hash).toBe("#/settings/plugins/stacks/zig"));
     expect(await screen.findByLabelText("YAML of Zig")).toHaveTextContent("name: zig");
     expect(screen.getByLabelText("keel's check")).toHaveTextContent("warning: there is no api_test_ac");
     expect(screen.getByText("zig build test")).toBeInTheDocument();
@@ -139,7 +139,7 @@ describe("Marketplace › Stacks", () => {
   it("an older install offers the update, which replaces the copy", async () => {
     db.st.installed.zig = { version: "1.0.0", edited: false };
     const user = userEvent.setup();
-    open("#/plugins/stacks/zig");
+    open("#/settings/plugins/stacks/zig");
     await user.click(await screen.findByRole("button", { name: "Update to 1.1.0" }));
     const dlg = await screen.findByRole("dialog", { name: "Update Zig to 1.1.0?" });
     await user.click(within(dlg).getByRole("button", { name: "Update to 1.1.0" }));

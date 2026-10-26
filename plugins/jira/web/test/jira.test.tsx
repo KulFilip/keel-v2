@@ -77,7 +77,7 @@ describe("Connections › Jira", () => {
     render(<App />);
     const card = await screen.findByTestId("jira-platform");
     await user.click(await within(card).findByRole("button", { name: "Set up Jira" }));
-    await user.click(within(card).getByRole("tab", { name: "Server / Data Center" }));
+    await user.click(within(card).getByRole("button", { name: "Server / Data Center" }));
     expect(within(card).queryByLabelText("Email")).toBeNull();
     await user.type(within(card).getByLabelText("Jira URL"), "https://jira.example.com");
     await user.type(within(card).getByLabelText("Personal access token"), "pat-123");

@@ -79,7 +79,7 @@ describe("Tasks board", () => {
     await openTasks();
     expect(await screen.findByText("No task yet")).toBeInTheDocument();
     expect(screen.getByTestId("sync-line")).toHaveTextContent("Not connected to Jira");
-    expect(main().getAllByRole("link", { name: "Connect Jira" })[0]).toHaveAttribute("href", "#/connections");
+    expect(main().getAllByRole("link", { name: "Connect Jira" })[0]).toHaveAttribute("href", "#/settings/connections");
   });
 
   it("New task makes a task and opens it", async () => {

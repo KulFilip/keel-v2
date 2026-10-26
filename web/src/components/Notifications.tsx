@@ -9,56 +9,61 @@ import { askPermission, EVTYPES, NTONE, permission, playSound } from "../notify"
 import { useSlot } from "../sdk/registry";
 import { SLOTS, type NotesSettingItem } from "../sdk/slots";
 import { useApp } from "../state";
+import { Seg, SwitchRow } from "./settingsUi";
 import { Drawer, Tabs, Ticks } from "./ui";
 
-function NoteSettings() {
+/** The bell's settings (keel 0.18.57: the same block in Settings › General › Notifications and in the bell's drawer):
+ *  what to tell you about and from where, the sound, the KeelBot sound (slot notes.setting), pop-ups, desktop
+ *  notifications, do not disturb and a test. Saved on the keel for you; `mascot` adds "Show keel" (the drawer). */
+export function BellSettings({ mascot = false }: { mascot?: boolean }) {
   const { nset, saveNset, project, notifyLocal, toast, showMascot, setShowMascot } = useApp();
   const [perm, setPerm] = useState(permission());
   // v0.15.2 the parts' fields after the sound (slot notes.setting: KeelBot's own sound)
   const parts = useSlot<NotesSettingItem>(SLOTS.notesSetting);
   const set = (patch: Partial<NotificationSettings>) => saveNset({ ...nset, ...patch });
   return (
-    <>
-      <div className="field">
-        <span className="lab">Sound</span>
-        <label className="chk"><input type="checkbox" id="n-sound" checked={nset.sound} onChange={(e) => set({ sound: e.target.checked })} /> Play a sound</label>
-        <div className="row">
-          <select id="n-tone" aria-label="Sound" value={nset.tone}
-            onChange={(e) => {
-              const tone = e.target.value as NotificationSettings["tone"];
-              set({ tone });
-              playSound("review", { ...nset, tone });
-            }}>
-            <option value="chime">Chime (two notes)</option>
-            <option value="soft">Soft (one note)</option>
-            <option value="off">Silent</option>
-          </select>
-          <label className="row" htmlFor="n-vol" style={{ gap: 6 }}>
-            <span className="sub">Volume</span>
-            <input type="range" id="n-vol" min={0} max={1} step={0.1} value={nset.volume}
+    <div className="ss-cols ss-bell" data-testid="bell-settings">
+      <div>
+        <span className="ss-meta" style={{ display: "block", paddingTop: 10 }}>Tell me about</span>
+        {EVTYPES.map(([k, l, d]) => (
+          <SwitchRow key={k} on={!!nset.kinds[k]} title={l} help={d} onChange={(on) => set({ kinds: { ...nset.kinds, [k]: on } })} />
+        ))}
+        <span className="ss-meta" style={{ display: "block", paddingTop: 10 }}>From</span>
+        <div style={{ padding: "8px 0" }}>
+          <Seg label="From" value={nset.scope} onChange={(scope) => set({ scope })}
+            options={[["all", "All projects"], ["project", `Only ${project?.name ?? "this project"}`]]} />
+        </div>
+      </div>
+      <div>
+        <SwitchRow on={nset.sound} title="Play a sound" help="Chime, soft or silent, and how loud." onChange={(sound) => set({ sound })} />
+        <div className="ss-inline" style={{ paddingBottom: 8 }}>
+          <Seg label="Sound" value={nset.tone} onChange={(tone) => {
+            set({ tone });
+            playSound("review", { ...nset, tone });
+          }} options={[["chime", "Chime (two notes)"], ["soft", "Soft (one note)"], ["off", "Silent"]]} />
+          <label className="ss-inline ss-meta" htmlFor="n-vol" style={{ gap: 6 }}>
+            Volume
+            <input type="range" id="n-vol" min={0} max={1} step={0.1} value={nset.volume} style={{ width: 100 }}
               onChange={(e) => {
                 const volume = Number(e.target.value);
                 set({ volume });
                 playSound("review", { ...nset, volume });
               }} />
           </label>
-          <button className="btn sm" type="button" onClick={() => {
+          <button className="ss-btn sm" type="button" onClick={() => {
             playSound("review", nset);
             window.setTimeout(() => playSound("failed", nset), 700);
             toast("Needs-you chime, then the failure tone.");
           }}>Test sound</button>
         </div>
-        <span className="hint">Failures use a lower tone, so you can tell them apart without looking.</span>
-      </div>
-      {parts.map((p) => <p.component key={p.id} />)}
-      <div className="field">
-        <span className="lab">Pop-ups</span>
-        <label className="chk"><input type="checkbox" checked={nset.popup} onChange={(e) => set({ popup: e.target.checked })} /> Show a pop-up in keel (top right, with a button to act)</label>
-        <label className="chk"><input type="checkbox" checked={nset.desktop} onChange={(e) => set({ desktop: e.target.checked })} /> Desktop notification, also when keel is in the background</label>
-        <div className="row">
-          <span className="sub">Browser permission: <b>{perm}</b></span>
+        <span className="ss-meta" style={{ display: "block", paddingBottom: 6 }}>Failures use a lower tone, so you can tell them apart without looking.</span>
+        {parts.map((p) => <p.component key={p.id} />)}
+        <SwitchRow on={nset.popup} title="Show a pop-up in keel" help="Top right, with a button to act." onChange={(popup) => set({ popup })} />
+        <SwitchRow on={nset.desktop} title="Desktop notification" help="Also when keel is in the background." onChange={(desktop) => set({ desktop })} />
+        <div className="ss-inline" style={{ paddingBottom: 8, fontSize: 13 }}>
+          <span className="ss-meta">Browser permission: <b style={{ color: "var(--fg)", fontWeight: 600 }}>{perm}</b></span>
           {perm !== "granted" && perm !== "unsupported" && (
-            <button className="btn sm" type="button" onClick={async () => {
+            <button className="ss-btn sm" type="button" onClick={async () => {
               const p = await askPermission();
               setPerm(p);
               if (p === "granted") set({ desktop: true });
@@ -66,37 +71,18 @@ function NoteSettings() {
             }}>Allow</button>
           )}
         </div>
+        <SwitchRow on={nset.quiet} title="Do not disturb" help="Keep them in the list, no sound or pop-up." onChange={(quiet) => set({ quiet })} />
+        {mascot && (
+          <SwitchRow on={showMascot} title="Show keel" help="The little hull by the bell jumps when something arrives and says what it is. Saved in this browser."
+            onChange={setShowMascot} />
+        )}
+        <button className="ss-btn sm" type="button" style={{ marginTop: 8 }} onClick={() => notifyLocal({
+          id: `test-${Date.now()}`, type: "review", project_id: project?.id ?? "", title: "Test notification",
+          body: "This is how a gate that waits for you looks", link: "#/flow", at: new Date().toISOString(), read: false,
+          summary: ["◆ This is how a gate that waits for you looks"],
+        })}>Send a test notification</button>
       </div>
-      <div className="field">
-        <span className="lab">Tell me about</span>
-        <div className="grid" style={{ gap: 6 }}>
-          {EVTYPES.map(([k, l, d]) => (
-            <label key={k} className="chk" style={{ alignItems: "flex-start" }}>
-              <input type="checkbox" checked={nset.kinds[k]} onChange={(e) => set({ kinds: { ...nset.kinds, [k]: e.target.checked } })} />{" "}
-              <span><b>{l}</b> <span className="sub">{d}</span></span>
-            </label>
-          ))}
-        </div>
-      </div>
-      <div className="field">
-        <span className="lab">From</span>
-        <label className="radio"><input type="radio" name="n-scope" checked={nset.scope === "all"} onChange={() => set({ scope: "all" })} /><span>All projects</span></label>
-        <label className="radio"><input type="radio" name="n-scope" checked={nset.scope === "project"} onChange={() => set({ scope: "project" })} /><span>Only {project?.name ?? "this project"}</span></label>
-      </div>
-      <div className="field">
-        <span className="lab">keel</span>
-        <label className="chk switch">
-          <input type="checkbox" role="switch" id="n-mascot" checked={showMascot} onChange={(e) => setShowMascot(e.target.checked)} /> Show keel
-        </label>
-        <span className="hint">The little hull by the bell jumps when something arrives and says what it is. Saved in this browser.</span>
-      </div>
-      <label className="chk"><input type="checkbox" checked={nset.quiet} onChange={(e) => set({ quiet: e.target.checked })} /> Do not disturb — keep them in the list, no sound or pop-up</label>
-      <button className="btn" type="button" onClick={() => notifyLocal({
-        id: `test-${Date.now()}`, type: "review", project_id: project?.id ?? "", title: "Test notification",
-        body: "This is how a gate that waits for you looks", link: "#/flow", at: new Date().toISOString(), read: false,
-        summary: ["◆ This is how a gate that waits for you looks"],
-      })}>Send a test notification</button>
-    </>
+    </div>
   );
 }
 
@@ -108,7 +94,7 @@ export function NotificationDrawer({ onClose }: { onClose: () => void }) {
   return (
     <Drawer title="Notifications" onClose={onClose} id="notedrawer">
       <Tabs value={tab} onChange={setTab} label="Notifications" options={[["inbox", `Inbox${unread ? ` (${unread})` : ""}`], ["settings", "Settings"]]} />
-      {tab === "settings" ? <NoteSettings /> : notes.length ? (
+      {tab === "settings" ? <BellSettings mascot /> : notes.length ? (
         <>
           <ul className="note-list" aria-label="Notifications" style={{ listStyle: "none", margin: 0, padding: 0 }}>
             {notes.map((n) => (

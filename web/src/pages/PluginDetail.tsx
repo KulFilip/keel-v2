@@ -1,4 +1,4 @@
-// v0.16.1 one plugin's own page, #/plugins/<name> (docs/plugins/mockup.html "Plugin detail"): the big icon, title,
+// v0.16.1 one plugin's own page, #/settings/plugins/<name> (docs/plugins/mockup.html "Plugin detail"): the big icon, title,
 // publisher, version, trust and repo; the main button (Install / Update / Turn off / Remove); ABOUT with each part it
 // brings; PERMISSIONS with their levels; VERSIONS from the catalog; the checks keel runs; what it needs. A plugin from
 // keel's image that no catalog lists shows what keel knows about it. v0.17.1: a plugin each project turns on (db, git,
@@ -229,11 +229,11 @@ export function PluginDetailPage({
     if (it.title && !titles.has(it.name)) titles.set(it.name, it.title);
   const crumb = (
     <nav className="mk-crumb" aria-label="Breadcrumb">
-      <a href="#/plugins" onClick={() => onBack("installed")}>
+      <a href="#/settings/plugins" onClick={() => onBack("installed")}>
         Plugins
       </a>
       <span aria-hidden="true">›</span>
-      <a href="#/plugins" onClick={() => onBack(back)}>
+      <a href="#/settings/plugins" onClick={() => onBack(back)}>
         {back === "installed"
           ? "Installed"
           : back === "sources"

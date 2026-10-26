@@ -1,6 +1,6 @@
 // Skills in the marketplace (keel 0.18.6): the kind switch's fourth kind (?kind=skills), keel's own skills ("From keel",
 // their agents), the catalogs' cards (Install / Installed here / Update), install with the agents to load it, a skill's
-// page (#/plugins/skills/<name>: its text and keel's review), update, remove, keel's own page, and no catalog.
+// page (#/settings/plugins/skills/<name>: its text and keel's review), update, remove, keel's own page, and no catalog.
 
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -20,10 +20,10 @@ const card = (title: string) => screen.findByRole("article", { name: `${title} s
 describe("Marketplace › Skills", () => {
   it("the kind switch's Skills: keel's own first, then the catalogs', and the search names the project", async () => {
     const user = userEvent.setup();
-    open("#/plugins?tab=market");
+    open("#/settings/plugins?tab=market");
     const kinds = await screen.findByRole("group", { name: "What to find" });
     await user.click(within(kinds).getByRole("button", { name: "Skills" }));
-    await waitFor(() => expect(location.hash).toBe("#/plugins?tab=market&kind=skills"));
+    await waitFor(() => expect(location.hash).toBe("#/settings/plugins?tab=market&kind=skills"));
     expect(screen.getByText(/Skills made by keel and the community/)).toBeInTheDocument();
     const mine = await card("Debugging");
     expect(within(screen.getByRole("region", { name: "From keel" })).getByRole("article", { name: "Debugging skill" })).toBeInTheDocument();
@@ -38,7 +38,7 @@ describe("Marketplace › Skills", () => {
 
   it("installs a catalog skill for the agents picked, then says Installed here", async () => {
     const user = userEvent.setup();
-    open("#/plugins?tab=market&kind=skills");
+    open("#/settings/plugins?tab=market&kind=skills");
     await user.click(within(await card("Changelog entries")).getByRole("button", { name: "Install Changelog entries" }));
     const dlg = await screen.findByRole("dialog", { name: "Install Changelog entries 1.1.0?" });
     expect(dlg).toHaveTextContent("31 tokens · 2 sections");
@@ -52,7 +52,7 @@ describe("Marketplace › Skills", () => {
 
   it("puts keel's own skill on more agents", async () => {
     const user = userEvent.setup();
-    open("#/plugins?tab=market&kind=skills");
+    open("#/settings/plugins?tab=market&kind=skills");
     await user.click(within(await card("Debugging")).getByRole("button", { name: "Agents for Debugging" }));
     const dlg = await screen.findByRole("dialog", { name: "Agents for Debugging" });
     await user.click(await within(dlg).findByRole("checkbox", { name: /explorer/ }));
@@ -62,7 +62,7 @@ describe("Marketplace › Skills", () => {
 
   it("no catalog: a note, and keel's own still show", async () => {
     db.ms.down = true;
-    open("#/plugins?tab=market&kind=skills");
+    open("#/settings/plugins?tab=market&kind=skills");
     expect(await screen.findByRole("note", { name: "No skill catalog" })).toHaveTextContent("No skill catalog answers yet.");
     expect(await card("Debugging")).toBeInTheDocument();
     expect(screen.queryByRole("article", { name: "Changelog entries skill" })).toBeNull();
@@ -73,7 +73,7 @@ describe("A skill's page", () => {
   it("shows the verified text and keel's review; update asks first, remove takes it away", async () => {
     const user = userEvent.setup();
     db.ms.installed["changelog-entries"] = { version: "1.0.0", edited: true, sid: "changelog-entries", agents: ["reviewer"] };
-    open("#/plugins/skills/changelog-entries");
+    open("#/settings/plugins/skills/changelog-entries");
     expect(await screen.findByRole("heading", { name: "Changelog entries" })).toBeInTheDocument();
     expect(screen.getByLabelText("Text of Changelog entries")).toHaveTextContent("One line per change.");
     expect(screen.getByText("When, How")).toBeInTheDocument();
@@ -91,7 +91,7 @@ describe("A skill's page", () => {
   });
 
   it("keel's own skill: in every project, its text, its references", async () => {
-    open("#/plugins/skills/debugging");
+    open("#/settings/plugins/skills/debugging");
     expect(await screen.findByRole("heading", { name: "Debugging" })).toBeInTheDocument();
     expect(screen.getByText("In every project")).toBeInTheDocument();
     expect(screen.getByLabelText("Text of Debugging")).toHaveTextContent("Find the cause first.");
@@ -101,7 +101,7 @@ describe("A skill's page", () => {
 
   it("a skill whose signature keel refuses: an alert, and Install is off", async () => {
     db.ms.badSignature = "flaky-tests";
-    open("#/plugins/skills/flaky-tests");
+    open("#/settings/plugins/skills/flaky-tests");
     expect(await screen.findByRole("alert")).toHaveTextContent("does not match its publisher's key");
     expect(screen.getByRole("button", { name: /^Install/ })).toBeDisabled();
   });

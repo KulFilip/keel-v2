@@ -26,7 +26,7 @@ const calls = (method: string, path: string) =>
 describe("Budget caps", () => {
   it("adds, edits and deletes caps", async () => {
     const user = userEvent.setup();
-    at("#/budget");
+    at("#/settings/budget");
     render(<App />);
     const table = await screen.findByRole("table", { name: "Caps" });
     expect(await within(table).findByText("600k tokens")).toBeInTheDocument();
@@ -35,14 +35,12 @@ describe("Budget caps", () => {
     // add
     await user.click(screen.getAllByRole("button", { name: "Add cap" })[0]);
     const add = await screen.findByRole("dialog", { name: "Add cap" });
-    await user.selectOptions(
-      within(add).getByLabelText("What it limits"),
-      "day",
+    await user.click(
+      within(within(add).getByRole("radiogroup", { name: "What it limits" })).getByRole("radio", { name: /All flows, per day/ }),
     );
     await user.type(within(add).getByLabelText("Limit"), "500k");
-    await user.selectOptions(
-      within(add).getByLabelText("When it is hit"),
-      "stop",
+    await user.click(
+      within(within(add).getByRole("group", { name: "When it is hit" })).getByRole("button", { name: "stop" }),
     );
     await user.click(within(add).getByRole("button", { name: "Add cap" }));
     await waitFor(() =>
@@ -100,7 +98,7 @@ describe("Budget caps", () => {
 
   it("refuses an empty limit", async () => {
     const user = userEvent.setup();
-    at("#/budget");
+    at("#/settings/budget");
     render(<App />);
     await screen.findByRole("table", { name: "Caps" });
     await user.click(screen.getAllByRole("button", { name: "Add cap" })[0]);

@@ -191,8 +191,10 @@ describe("keel mascot", () => {
 
   it("is off at first; Settings › This browser turns it on next to the bell, and the logo stays", async () => {
     const user = userEvent.setup();
-    location.hash = "#/settings";
+    location.hash = "#/settings/general";
     render(<App />);
+    const user0 = userEvent.setup();
+    await user0.click(await screen.findByRole("button", { name: "This browser" }));
     const box = await screen.findByRole("region", { name: "This browser" });
     expect(screen.queryByTestId("mascot")).not.toBeInTheDocument();
     expect(document.querySelector(".side-head .brand svg")).toBeInTheDocument();
@@ -278,7 +280,7 @@ describe("model pickers follow the catalog", () => {
 
   it("Connections: 'Use for all agents' saves the picked model and effort on the selected mode", async () => {
     const user = userEvent.setup();
-    location.hash = "#/connections";
+    location.hash = "#/settings/models";
     render(<App />);
     const picker = await screen.findByTestId("all-claude-picker");
     await waitFor(() => expect(within(picker).getByTestId("all-claude-source")).toHaveTextContent("from the CLI"));
@@ -294,11 +296,12 @@ describe("model pickers follow the catalog", () => {
     await waitFor(() => expect(calls("PUT", "/api/settings/general")[0]?.body).toEqual({ default_model: m, implementer_model: m, reviewer_model: m }));
   });
 
-  it("Settings model rows show the effort picker", async () => {
-    location.hash = "#/settings";
+  it("Settings › Models & logins: the model rows show the effort as choices", async () => {
+    location.hash = "#/settings/models";
     render(<App />);
-    const row = await screen.findByTestId("set-reviewer_model-picker");
-    await waitFor(() => expect(within(row).getByLabelText("Effort")).toBeInTheDocument());
+    const row = await screen.findByTestId("row-reviewer_model");
+    // the effort is a row of choices next to the model (Settings › Models & logins)
+    await waitFor(() => expect(within(row).getByRole("group", { name: "Effort" })).toBeInTheDocument());
     expect(within(row).getByLabelText("Runs on")).toHaveValue("subscription");
   });
 

@@ -729,11 +729,7 @@ details.file-card[open] > summary.file-bar::before { content: "▾"; }
 .choice-problem { margin: 0; color: var(--bad); font-size: 13px; }
 
 /* usage dashboard: provider plan windows (components/UsageStrip.tsx) */
-.ustrip { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
-.ucard { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--panel); min-width: 0; }
-.ucard-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
 .ucard-line { min-width: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.ucard .meter { height: 6px; }
 
 /* the budget bar on top of every page (components/BudgetBar.tsx): one 40px line that stays while the page scrolls.
    --bar-h is its height, for the page parts that stick under it. */

@@ -34,9 +34,12 @@ describe("Budget", () => {
     expect(await within(counted).findByText("1.90M")).toBeInTheDocument();          // tokens this month, not 1900000
     expect(within(counted).getByText("Cost at API prices")).toBeInTheDocument();
     const stop = main().getByRole("region", { name: "Limits that stop a flow" });
-    expect(await within(stop).findByText("600k tokens", { selector: "b" })).toBeInTheDocument(); // the project's cap per flow from Settings
-    expect(within(stop).getByText(/pause before the next agent at/)).toBeInTheDocument();
-    expect(within(stop).getByRole("link", { name: "Change in Settings" })).toHaveAttribute("href", "#/settings");
+    // the rules for every flow, editable here; the project's own cap per flow says so, with Reset
+    const every = within(stop).getByTestId("for-every-flow");
+    expect(await within(every).findByLabelText("Cap per flow (tokens)")).toHaveValue("500k");
+    expect(within(every).getByTestId("row-cap_tokens")).toHaveTextContent("ludus-engine uses 600k tokens");
+    expect(within(every).getByRole("group", { name: "Pause before the next agent at" })).toBeInTheDocument();
+    expect(within(every).getByRole("link", { name: "change in Models & logins" })).toHaveAttribute("href", "#/settings/models");
   });
 
   it("an account with no cap says 'No cap set' in k/M and offers to set one, focused in the drawer", async () => {
@@ -97,16 +100,16 @@ describe("Connections", () => {
     let release = () => {};
     const wait = new Promise<void>((r) => { release = r; });
     server.use(http.get("/api/connections", async () => { await wait; return HttpResponse.json(fx.connections); }));
-    location.hash = "#/connections";
+    location.hash = "#/settings/models";
     render(<App />);
     for (const id of ["claude", "codex", "copilot", "fake"]) {
       expect(within(await main().findByTestId(`conn-${id}`)).getByRole("status")).toHaveTextContent("Checking…");
     }
     expect(main().getByText("Checking what is installed…")).toBeInTheDocument();
     release();
-    const claude = await main().findByRole("article", { name: "Claude" });
+    const claude = await main().findByRole("group", { name: "Claude" });
     expect(within(claude).getByText("No login saved")).toBeInTheDocument();
-    expect(within(claude).getByRole("button", { name: "Set up login" })).toHaveClass("primary");
+    expect(within(claude).getByRole("button", { name: "Set up login" })).toHaveClass("p");
     expect(within(claude).getByText(/keel has no Claude login yet/)).toBeInTheDocument();
     expect(main().queryByTestId("conn-codex")).toBeNull();          // the api knows only Claude here
     expect(main().getByText("1 provider needs a login or a key before its agents can run.")).toBeInTheDocument();
@@ -116,11 +119,11 @@ describe("Connections", () => {
     server.use(http.get("/api/connections", () => HttpResponse.json({ ...fx.connections,
       providers: [{ ...fx.connections.providers[0], login_set: true, login_hint: "…AAA",
         modes: fx.connections.providers[0].modes.map((m) => (m.id === "subscription" ? { ...m, ready: true, need: null, detail: "2.1.197 (Claude Code) found, login saved." } : m)) }] })));
-    location.hash = "#/connections";
+    location.hash = "#/settings/models";
     render(<App />);
-    const claude = await main().findByRole("article", { name: "Claude" });
+    const claude = await main().findByRole("group", { name: "Claude" });
     expect(within(claude).getByText("Ready, logged in")).toBeInTheDocument();
-    expect(within(claude).getByRole("button", { name: "Log in again" })).not.toHaveClass("primary");
+    expect(within(claude).getByRole("button", { name: "Log in again" })).not.toHaveClass("p");
     expect(main().getByText("Every provider is ready.")).toBeInTheDocument();
   });
 

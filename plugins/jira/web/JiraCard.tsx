@@ -2,10 +2,10 @@
 // access token); which tickets to bring in (project key, board, JQL); how often; the status mapping keel moves tickets
 // with (found from Jira); the Jira reviewer field and the GitHub reviewers. The token is stored encrypted and never shown.
 // Tools › Catalog: the MCP servers keel fills from these settings (mcp-atlassian). The Jira plugin's index.tsx puts
-// both in their slots (plugins/jira).
+// both in their slots (plugins/jira). keel 0.18.57: Settings › Connections › Jira, one row per project that opens.
 
 import { useEffect, useState } from "react";
-import { agoText, Confirm, EmptyState, ErrorBox, errorParts, Pill, Section, Skeleton, Tabs, useApp, useLoad } from "@keel/web-sdk";
+import { agoText, EmptyState, ErrorBox, errorParts, Note, Pill, Section, Seg, Skeleton, Tile, TonePill, useApp, useLoad } from "@keel/web-sdk";
 import {
   jiraApi, STATUS_LABEL, TASK_STATUSES, type JiraDiscovery, type JiraSave, type JiraTest, type JiraView, type TaskStatus,
 } from "./jiraApi";
@@ -70,16 +70,16 @@ function Mapping({ pid, view, onSaved }: { pid: string; view: JiraView; onSaved:
   };
   const fields = found?.fields ?? [];
   return (
-    <div className="jr-map" data-testid="jira-mapping">
-      <div className="row jr-find">
-        <input type="text" className="inline-input" aria-label="A ticket key to read its transitions (optional)" placeholder="ABC-1 (optional)" value={key}
-          onChange={(e) => setKey(e.target.value)} style={{ width: 150 }} />
-        <button className="btn sm" type="button" onClick={discover} disabled={busy}>{busy && !found ? "Asking Jira…" : "Find statuses in Jira"}</button>
-        <span className="hint">keel moves the ticket to the status (or transition) named here when the task changes.</span>
+    <div className="jr-map" data-testid="jira-mapping" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div className="ss-inline">
+        <input type="text" className="ss-input mono" aria-label="A ticket key to read its transitions (optional)" placeholder="ABC-1 (optional)" value={key}
+          onChange={(e) => setKey(e.target.value)} style={{ width: 160 }} />
+        <button className="ss-btn sm" style={{ minHeight: 40 }} type="button" onClick={discover} disabled={busy}>{busy && !found ? "Asking Jira…" : "Find statuses in Jira"}</button>
+        <span className="ss-meta">keel moves the ticket to the status (or transition) named here when the task changes.</span>
       </div>
-      {found?.transitions.length ? <p className="hint jr-trans">From {key.trim().toUpperCase()} Jira offers: {found.transitions.map((t) => `${t.name} → ${t.to}`).join(" · ")}</p> : null}
-      <div className="table-wrap rt-wrap">
-        <table className="rt jr-table" aria-label="Status mapping">
+      {found?.transitions.length ? <p className="ss-meta jr-trans" style={{ margin: 0 }}>From {key.trim().toUpperCase()} Jira offers: {found.transitions.map((t) => `${t.name} → ${t.to}`).join(" · ")}</p> : null}
+      <div className="ss-tablewrap" style={{ border: "1px solid var(--border)", borderRadius: 10, background: "var(--panel)" }}>
+        <table className="ss-table jr-table" aria-label="Status mapping">
           <thead><tr><th>keel status</th><th>Jira status</th></tr></thead>
           <tbody>
             {TASK_STATUSES.map((s) => {
@@ -87,14 +87,14 @@ function Mapping({ pid, view, onSaved }: { pid: string; view: JiraView; onSaved:
               const opts = [...new Set([...names, ...(v && v !== "-" ? [v] : [])])];
               return (
                 <tr key={s}>
-                  <td className="rt-main"><b>{STATUS_LABEL[s]}</b> <span className="mono sub">{s}</span></td>
+                  <td><b style={{ fontWeight: 500 }}>{STATUS_LABEL[s]}</b> <span className="ss-mono ss-meta ss-small">{s}</span></td>
                   <td>
-                    <select aria-label={`Jira status for ${STATUS_LABEL[s]}`} value={v} onChange={(e) => setMap((m) => ({ ...m, [s]: e.target.value }))}>
+                    <select className="ss-input" style={{ minHeight: 34 }} aria-label={`Jira status for ${STATUS_LABEL[s]}`} value={v} onChange={(e) => setMap((m) => ({ ...m, [s]: e.target.value }))}>
                       <option value="">{USUAL[s] ? `usual: ${USUAL[s]}` : "do not move (not mapped)"}</option>
                       {opts.map((n) => <option key={n} value={n}>{n}</option>)}
                       <option value="-">do not move the ticket</option>
                     </select>
-                    {note(s, v) && <span className="hint jr-note" style={{ display: "block" }} data-testid={`jira-note-${s}`}>{note(s, v)}</span>}
+                    {note(s, v) && <span className="ss-meta ss-small jr-note" style={{ display: "block", whiteSpace: "normal" }} data-testid={`jira-note-${s}`}>{note(s, v)}</span>}
                   </td>
                 </tr>
               );
@@ -102,31 +102,31 @@ function Mapping({ pid, view, onSaved }: { pid: string; view: JiraView; onSaved:
           </tbody>
         </table>
       </div>
-      <div className="jr-revs">
-        <div className="field">
+      <div className="ss-fields jr-revs" style={{ alignItems: "flex-start" }}>
+        <div className="ss-label">
           <label htmlFor={`jr-field-${pid}`}>Jira reviewer field</label>
-          <select id={`jr-field-${pid}`} value={field} onChange={(e) => setField(e.target.value)}>
+          <select className="ss-input" id={`jr-field-${pid}`} value={field} onChange={(e) => setField(e.target.value)}>
             <option value="">none</option>
             {[...new Set([...fields.map((f) => f.id), ...(field ? [field] : [])])].map((id) => {
               const f = fields.find((x) => x.id === id);
               return <option key={id} value={id}>{f ? `${f.name} (${id})` : id}</option>;
             })}
           </select>
-          <span className="hint">A user picker in your Jira; keel fills it when the PR opens. {fields.length ? "" : "Find statuses to list the fields."}</span>
+          <span className="ss-help">A user picker in your Jira; keel fills it when the PR opens. {fields.length ? "" : "Find statuses to list the fields."}</span>
         </div>
-        <div className="field">
+        <div className="ss-label">
           <label htmlFor={`jr-jrev-${pid}`}>Jira reviewers</label>
-          <input type="text" id={`jr-jrev-${pid}`} value={jiraRev} onChange={(e) => setJiraRev(e.target.value)}
+          <input type="text" className="ss-input" id={`jr-jrev-${pid}`} value={jiraRev} onChange={(e) => setJiraRev(e.target.value)}
             placeholder={view.settings.kind === "cloud" ? "email or account id" : "user names"} />
         </div>
-        <div className="field">
+        <div className="ss-label">
           <label htmlFor={`jr-ghrev-${pid}`}>GitHub reviewers</label>
-          <input type="text" id={`jr-ghrev-${pid}`} value={ghRev} onChange={(e) => setGhRev(e.target.value)} placeholder="octocat, org/team" />
-          <span className="hint">Asked on the PR (needs a GitHub token in Connections). A task can name its own.</span>
+          <input type="text" className="ss-input" id={`jr-ghrev-${pid}`} value={ghRev} onChange={(e) => setGhRev(e.target.value)} placeholder="octocat, org/team" />
+          <span className="ss-help">Asked on the PR (needs a GitHub token in Connections). A task can name its own.</span>
         </div>
       </div>
       {err && <ErrorBox error={err} />}
-      <div className="row"><button className="btn sm primary" type="button" onClick={save} disabled={busy}>Save mapping and reviewers</button></div>
+      <div><button className="ss-btn sm p" type="button" onClick={save} disabled={busy}>Save mapping and reviewers</button></div>
     </div>
   );
 }
@@ -189,58 +189,62 @@ function JiraForm({ pid, view, onSaved, onRemoved }: { pid: string; view: JiraVi
   };
 
   return (
-    <div className="jr-form">
-      <Tabs value={kind} options={[["cloud", "Jira Cloud"], ["server", "Server / Data Center"]]} onChange={setKind} label="Jira kind" />
-      <div className="jr-grid">
-        <div className="field">
-          <label htmlFor={id("url")}>{kind === "cloud" ? "Site URL" : "Jira URL"}</label>
-          <input type="text" id={id("url")} value={url} onChange={(e) => setUrl(e.target.value)}
+    <div className="jr-form" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <Seg label="Jira kind" value={kind} options={[["cloud", "Jira Cloud"], ["server", "Server / Data Center"]]} onChange={setKind} />
+      <div className="ss-fields">
+        <label className="ss-label" htmlFor={id("url")} style={{ flex: "2 1 260px" }}>{kind === "cloud" ? "Site URL" : "Jira URL"}
+          <input type="text" className="ss-input mono" id={id("url")} value={url} onChange={(e) => setUrl(e.target.value)}
             placeholder={kind === "cloud" ? "https://your-site.atlassian.net" : "https://jira.example.com"} />
-        </div>
+        </label>
         {kind === "cloud" && (
-          <div className="field">
-            <label htmlFor={id("email")}>Email</label>
-            <input type="text" id={id("email")} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="off" />
-          </div>
+          <label className="ss-label" htmlFor={id("email")}>Email
+            <input type="text" className="ss-input" id={id("email")} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="off" />
+          </label>
         )}
-        <div className="field">
-          <label htmlFor={id("token")}>{kind === "cloud" ? "API token" : "Personal access token"}</label>
-          <input type="password" id={id("token")} value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off"
-            placeholder={view.token_set ? `${view.token_hint ?? "••••"} (saved)` : "paste the token"} />
-          <span className="hint">{kind === "cloud" ? "id.atlassian.com › Security › API tokens." : "Jira › Profile › Personal Access Tokens."} Stored encrypted; only the last characters are shown.</span>
-        </div>
-        <div className="field">
-          <label htmlFor={id("key")}>Project key</label>
-          <input type="text" id={id("key")} value={projectKey} onChange={(e) => setProjectKey(e.target.value)} placeholder="ABC" />
-        </div>
-        <div className="field">
-          <label htmlFor={id("board")}>Board id (optional)</label>
-          <input type="text" id={id("board")} value={board} onChange={(e) => setBoard(e.target.value)} placeholder="from …/boards/7" />
-        </div>
-        <div className="field">
+      </div>
+      <div className="ss-label">
+        <label htmlFor={id("token")}>{kind === "cloud" ? "API token" : "Personal access token"}</label>
+        <input type="password" className="ss-input mono" id={id("token")} value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off"
+          placeholder={view.token_set ? `${view.token_hint ?? "••••"} (saved)` : "paste the token"} />
+        <span className="ss-help">{kind === "cloud" ? "id.atlassian.com › Security › API tokens." : "Jira › Profile › Personal Access Tokens."} Stored encrypted; only the last characters are shown.</span>
+      </div>
+      <div className="ss-fields" style={{ alignItems: "flex-start" }}>
+        <label className="ss-label" htmlFor={id("key")} style={{ flex: "1 1 120px" }}>Project key
+          <input type="text" className="ss-input mono" id={id("key")} value={projectKey} onChange={(e) => setProjectKey(e.target.value)} placeholder="ABC" />
+        </label>
+        <label className="ss-label" htmlFor={id("board")} style={{ flex: "1 1 140px" }}>Board id (optional)
+          <input type="text" className="ss-input mono" id={id("board")} value={board} onChange={(e) => setBoard(e.target.value)} placeholder="from …/boards/7" />
+        </label>
+        <div className="ss-label" style={{ flex: "1 1 140px" }}>
           <label htmlFor={id("poll")}>Sync every (minutes)</label>
-          <input type="text" id={id("poll")} inputMode="numeric" value={poll} onChange={(e) => setPoll(e.target.value)} />
-          <span className="hint">0 = only when you press Sync now.</span>
+          <input type="text" className="ss-input mono" id={id("poll")} inputMode="numeric" value={poll} onChange={(e) => setPoll(e.target.value)} />
+          <span className="ss-help">0 = only when you press Sync now.</span>
         </div>
       </div>
-      <div className="field">
+      <div className="ss-label">
         <label htmlFor={id("jql")}>JQL (optional)</label>
-        <input type="text" id={id("jql")} value={jql} onChange={(e) => setJql(e.target.value)} placeholder={view.default_jql} className="mono" />
-        <span className="hint">Empty: your open tickets{projectKey.trim() && !board.trim() ? ` in ${projectKey.trim().toUpperCase()}` : ""}{board.trim() ? " on the board" : ""}. Now: <span className="mono">{view.jql}</span></span>
+        <input type="text" id={id("jql")} value={jql} onChange={(e) => setJql(e.target.value)} placeholder={view.default_jql} className="ss-input mono" />
+        <span className="ss-help">Empty: your open tickets{projectKey.trim() && !board.trim() ? ` in ${projectKey.trim().toUpperCase()}` : ""}{board.trim() ? " on the board" : ""}. Now: <span className="ss-mono">{view.jql}</span></span>
       </div>
       {test && (
-        <p className={test.ok ? "okc" : "badc"} role="status">
+        <Note tone={test.ok ? "ok" : "err"} role="status">
           {test.ok ? `Test OK: logged in as ${test.user?.name ?? "?"}.` : `Test failed: ${test.error ?? "no answer"}`}
-          {!test.ok && test.hint && <span className="sub"> {test.hint}</span>}
-        </p>
+          {!test.ok && test.hint && <span> {test.hint}</span>}
+        </Note>
       )}
       {err && <ErrorBox error={err} />}
-      <div className="row">
-        <button className="btn sm" type="button" onClick={runTest} disabled={busy || !url.trim()}>Test</button>
-        <button className="btn sm primary" type="button" onClick={save} disabled={busy || !url.trim()}>{busy ? "Working…" : view.connected ? "Save" : "Connect"}</button>
-        {view.connected && <button className="btn sm ghost" type="button" onClick={() => setRemoving(true)}>Remove</button>}
+      <div className="ss-actions">
+        <button className="ss-btn sm" type="button" onClick={runTest} disabled={busy || !url.trim()}>Test</button>
+        <button className="ss-btn sm p" type="button" onClick={save} disabled={busy || !url.trim()}>{busy ? "Working…" : view.connected ? "Save" : "Connect"}</button>
+        {view.connected && <button className="ss-btn sm q" type="button" onClick={() => setRemoving(true)}>Remove</button>}
       </div>
-      {removing && <Confirm text="Remove this Jira connection and its token? Tasks stay in keel." yes="Remove" onYes={() => void remove()} onNo={() => setRemoving(false)} />}
+      {removing && (
+        <div className="ss-confirm" role="group" aria-label="Confirm">
+          <span>Remove this Jira connection and its token? Tasks stay in keel.</span>
+          <button className="ss-btn sm dp" type="button" onClick={() => void remove()}>Remove</button>
+          <button className="ss-btn sm" type="button" onClick={() => setRemoving(false)}>Keep</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -254,32 +258,29 @@ function JiraCard({ pid, name, current }: { pid: string; name: string; current: 
   }, [v?.connected, current]);
   const head = `jira-${pid}`;
   return (
-    <article className="panel cn-card jr-card" aria-labelledby={head} data-testid={`jira-${pid}`}>
-      <header className="cn-head">
-        <div className="cn-id">
-          <h2 id={head}>{name}</h2>
-          <span className="sub">{v?.connected ? `${v.settings.kind === "server" ? "Jira Server" : "Jira Cloud"} · ${v.settings.base_url}` : "Jira is not connected: tasks stay local."}</span>
-        </div>
-        <div className="cn-state">
-          {!v ? <span className="sub">Checking…</span> : v.connected ? <Pill tone="ok">connected</Pill> : <Pill tone="idle">not connected</Pill>}
-          {v?.connected && <span className="hint">{v.last_sync_at ? `synced ${agoText(v.last_sync_at)}` : "not synced yet"}{v.me ? ` · as ${v.me.name}` : ""}</span>}
-          {v?.last_sync_error && <span className="hint badc">{v.last_sync_error}</span>}
-        </div>
-        <div className="cn-actions">
-          <button className={`btn sm${v && !v.connected ? " primary" : ""}`} type="button" aria-expanded={open} aria-controls={`${head}-body`} onClick={() => setOpen((o) => !o)}>
-            {open ? "Close" : v?.connected ? "Edit" : "Set up Jira"}
-          </button>
-        </div>
-      </header>
-      {r.error && <div className="cn-body"><ErrorBox error={r.error} onRetry={() => void r.reload()} /></div>}
+    <article className="ss-list jr-card" aria-labelledby={head} data-testid={`jira-${pid}`}>
+      <div className="ss-row0">
+        <Tile>J</Tile>
+        <span className="ss-grow">
+          <b id={head} style={{ fontWeight: 600 }}>{name}</b>
+          <span className="ss-meta">{v?.connected ? `${v.settings.kind === "server" ? "Jira Server" : "Jira Cloud"} · ${v.settings.base_url}` : "Jira is not connected: tasks stay local."}</span>
+          {v?.connected && <span className="ss-meta ss-small">{v.last_sync_at ? `synced ${agoText(v.last_sync_at)}` : "not synced yet"}{v.me ? ` · as ${v.me.name}` : ""}</span>}
+          {v?.last_sync_error && <span className="ss-small" style={{ color: "var(--bad)" }}>{v.last_sync_error}</span>}
+        </span>
+        {!v ? <span className="ss-meta">Checking…</span> : v.connected ? <TonePill tone="ok">connected</TonePill> : <TonePill tone="off">not connected</TonePill>}
+        <button className={`ss-btn sm${v && !v.connected && !open ? " p" : ""}`} type="button" aria-expanded={open} aria-controls={`${head}-body`} onClick={() => setOpen((o) => !o)}>
+          {open ? "Close" : v?.connected ? "Edit" : "Set up Jira"}
+        </button>
+      </div>
+      {r.error && <div className="ss-row"><ErrorBox error={r.error} onRetry={() => void r.reload()} /></div>}
       {open && v && (
-        <div className="cn-body jr-body" id={`${head}-body`}>
+        <div className="jr-body" id={`${head}-body`} style={{ display: "flex", flexDirection: "column", gap: 14, padding: "16px 20px 20px", borderTop: "1px solid var(--border)", background: "var(--bg)" }}>
           <JiraForm pid={pid} view={v} onSaved={(n) => r.setData(n)} onRemoved={() => void r.reload()} />
           {v.connected && (
-            <section className="jr-sec" aria-label="Statuses and reviewers">
-              <h3>Statuses and reviewers</h3>
+            <section className="jr-sec" aria-label="Statuses and reviewers" style={{ display: "flex", flexDirection: "column", gap: 12, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
+              <h3 className="ss-h3">Statuses and reviewers</h3>
               <Mapping key={v.settings.base_url} pid={pid} view={v} onSaved={(n) => r.setData(n)} />
-              <p className="hint">Agents can read tickets themselves with the optional Jira MCP server (mcp-atlassian): Tools (MCP) › Catalog{v.mcp_server ? ` — added as ${v.mcp_server}` : ""}.</p>
+              <p className="ss-meta" style={{ margin: 0 }}>Agents can read tickets themselves with the optional Jira MCP server (mcp-atlassian): Tools (MCP) › Catalog{v.mcp_server ? ` — added as ${v.mcp_server}` : ""}.</p>
             </section>
           )}
         </div>
@@ -293,12 +294,14 @@ export function JiraSection() {
   const { projects, pid } = useApp();
   const ordered = [...projects].sort((a, b) => (a.id === pid ? -1 : b.id === pid ? 1 : 0));
   return (
-    <Section title="Jira" sub="Per project: where keel reads your tickets, the statuses it moves them to, and who reviews. Without it, tasks stay in keel.">
-      <div className="cn-list">
-        {ordered.length ? ordered.map((p) => <JiraCard key={p.id} pid={p.id} name={p.name} current={p.id === pid} />)
-          : <div className="panel"><EmptyState title="No project yet">Add a repo on All projects, then connect its Jira here.</EmptyState></div>}
+    <section className="ss-sec" aria-labelledby="c-jira" data-testid="jira">
+      <div>
+        <h2 id="c-jira" className="ss-h2 ss-title-row">Jira <span className="ss-tag run">per project</span></h2>
+        <p className="ss-sub">Per project: where keel reads your tickets, the statuses it moves them to, and who reviews. Without it, tasks stay in keel.</p>
       </div>
-    </Section>
+      {ordered.length ? ordered.map((p) => <JiraCard key={p.id} pid={p.id} name={p.name} current={p.id === pid} />)
+        : <div className="ss-card"><EmptyState title="No project yet">Add a repo on All projects, then connect its Jira here.</EmptyState></div>}
+    </section>
   );
 }
 
