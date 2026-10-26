@@ -423,6 +423,7 @@ function SuggestCard({
   const [err, setErr] = useState<Err | null>(null);
   const [allowDirty, setAllowDirty] = useState(false);
   const [allowFake, setAllowFake] = useState(false);
+  const [allowForce, setAllowForce] = useState(false);
   const [doctor, setDoctor] = useState(false);
   // keel 0.18.55 a project keel does not know yet: ask once before the flow starts (Run init first / Start anyway)
   const { projects } = useApp();
@@ -441,6 +442,8 @@ function SuggestCard({
   }, [pid]);
   const dirty = !!err && /uncommitted changes/i.test(err.message);
   const fake = !!err && /fake model/i.test(err.message);
+  // 0.18.57 one owner per task: another flow or side agent works on this ticket, branch or files
+  const owned = !!err && /already works on this/i.test(err.message);
   const wf = wfs?.find((w) => w.id === wid);
   const start = async (anyway = askedOk) => {
     if (unknown && !anyway) {
@@ -457,6 +460,7 @@ function SuggestCard({
           run_mode: mode,
           ...(allowDirty ? { allow_dirty: true } : {}),
           ...(allowFake ? { allow_fake: true } : {}),
+          ...(allowForce ? { force: true } : {}),
         }),
       );
     } catch (e) {
@@ -578,6 +582,16 @@ function SuggestCard({
             onChange={(e) => setAllowFake(e.target.checked)}
           />{" "}
           Run with the fake model anyway
+        </label>
+      )}
+      {(owned || allowForce) && (
+        <label className="chk">
+          <input
+            type="checkbox"
+            checked={allowForce}
+            onChange={(e) => setAllowForce(e.target.checked)}
+          />{" "}
+          Start anyway — two agents on one task may write over each other
         </label>
       )}
       {err && <ErrorBox error={err} />}

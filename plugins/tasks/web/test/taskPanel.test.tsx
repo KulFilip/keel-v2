@@ -233,6 +233,31 @@ describe("Task drawer (new page): keel suggests", () => {
     ).toBeInTheDocument();
   });
 
+  it("offers Start anyway when another flow already works on the task, and sends force", async () => {
+    let n = 0;
+    server.use(
+      http.post("/api/tasks/:id/start", async ({ request }) => {
+        const body = (await request.clone().json()) as Record<string, unknown>;
+        n += 1;
+        if (!body.force)
+          return HttpResponse.json(
+            { error: "Someone already works on this: flow Export orders as CSV at verify works on ticket ABC-1" },
+            { status: 409 },
+          );
+        return undefined; // force: the default handler starts it
+      }),
+    );
+    const user = userEvent.setup();
+    const d = await openTask("tk_1", "ABC-1 · Rank players weekly");
+    const s = within(d).getByRole("region", { name: "Start a flow" });
+    await within(s).findByTestId("suggested-flow");
+    await user.click(within(s).getByRole("button", { name: "Start feature flow" }));
+    const box = await within(s).findByRole("checkbox", { name: /two agents on one task/ });
+    await user.click(box);
+    await user.click(within(s).getByRole("button", { name: "Start feature flow" }));
+    await waitFor(() => expect(n).toBe(2));
+  });
+
   it("a project keel does not know yet: asks once, Run init first starts init, Start anyway starts the task's flow", async () => {
     db.projects[0].configured = false;
     localStorage.setItem("keel2.init-offered.ludus-engine", "true");
