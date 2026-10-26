@@ -1,0 +1,33 @@
+id: address
+name: address (keel)
+about: "address a review comment, or change only test code: one agent changes the code and its tests, keel runs the tests, you look once"
+keel_rules: true
+version: 1
+# Implement, then test (keel 0.18.56): for a reviewer's comment ("Address it" on a review thread) and for a change to
+# test code only (a helper for a test's fixtures, a clearer test name), where a test-first loop has no new behaviour to
+# describe. One agent makes the change with code and test files both writable (phase ac, as quick), adds or adjusts a
+# test when behaviour changes, and writes no test of the source text. keel runs the project's tests (a failure goes back
+# to the agent, up to 2 rounds, then keel asks), you look at the diff once, keel commits. Nothing is pushed. A bigger
+# comment (a new page, a migration, the API contract): pick the small, change or feature flow instead.
+steps:
+  - { id: preflight, kind: code, name: preflight + own branch, action: preflight, phase: preflight }
+  - id: change
+    kind: agent
+    name: make the change
+    agent: implementer
+    model: default
+    phase: ac
+    instructions: >-
+      Make the change the request asks for, and only that, in the files it needs, following how this project already
+      does things. Code and test files may both change here. When the change alters behaviour, add or adjust the test
+      that proves it. When it changes no behaviour (a refactor, an extract into a helper, a rename, test code only),
+      write no new test (the existing tests passing is the proof) and end with one line "NO-BEHAVIOUR-CHANGE: <what
+      changed>". Never write a test that reads source code as text.
+      Run the tests you touched before you stop. If the change cannot be tested (a text, a comment), end with one line
+      "UNTESTABLE: <why>". When it is bigger than the request (a new page, a migration, the API contract, several
+      parts), stop and say so: it needs the small or the feature flow.
+  - { id: verify, kind: code, name: run the tests, action: verify_green, phase: ac, back: change, rounds: 2, lock: true }
+  - { id: diff, kind: code, name: the diff for your look, action: show_diff+test_check, phase: ac }
+  - { id: look, kind: gate, name: look at the change, back: change, lock: true, phase: gate }
+  - { id: commit, kind: code, name: commit, action: commit, lock: true, phase: ac }
+  - { id: close, kind: code, name: done, action: close_flow, then: end, phase: close }

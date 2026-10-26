@@ -788,7 +788,9 @@ def commit(a: ActionInput) -> ActionResult:
     # keel Product links the per-criterion commits too ("feat(AC-2): ... [SHOPS-4]")
     ticket = ticket_key(a) if ctype != "setup" else None
     tag = f" [{ticket}]" if ticket else ""
-    message, body = commit_message(rules.commit_prefix(ctype, ident), subject, 72 - len(tag))
+    # 0.18.56 an ac commit (quick, address) that holds test files only is a test change: "test(...)", not "feat(...)"
+    only_tests = ctype == "ac" and bool(buckets) and all(b in test_scope.TEST_BUCKETS for _f, b in buckets)
+    message, body = commit_message(rules.commit_prefix("red" if only_tests else ctype, ident), subject, 72 - len(tag))
     if ticket and ticket not in message:
         message += tag
     if found and ctype == "fix" and a.phase == "bug-fix":

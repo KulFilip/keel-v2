@@ -33,6 +33,8 @@ ABOUT = {
               "feature",
     "quick": "the smallest code change (a typo, a small bug, a config value): one agent makes it and a test → keel runs "
              "the tests → you look at the diff once → one commit; a few steps, no spec, no ship",
+    "address": "a reviewer's comment, or a change to test code only: one agent changes the code and its tests → keel "
+               "runs the tests → you look at the diff once → one commit; no test-first loop",
     "small": "a small feature, test-first, without ship: a short plan with 1–3 criteria you approve → per criterion a "
              "failing test and the code → one review → your one look",
     "implement": "the usual order, not test-first: the code → its tests → keel runs them; pass → one commit and done, "
