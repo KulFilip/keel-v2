@@ -549,6 +549,8 @@ export function handlers(db: Db) {
     }),
     http.post("/api/projects/:pid/agents", async ({ request }) => { const b = await log(request); return HttpResponse.json({ ...b, custom: true, enabled: true, overridden: [] }); }),
     http.post("/api/agents/:aid/test", () => HttpResponse.json({ ok: true, text: "OK", ms: 1400 })),
+    // 0.18.57 Skills › Found in the repo: nothing found unless a test says otherwise
+    http.get("/api/projects/:pid/skills/repo", () => HttpResponse.json({ on: true, found_at: null, docs: [], skills: [], attached: [] })),
     http.get("/api/projects/:pid/skills", () => HttpResponse.json(fx.skills)),
     http.get("/api/skills/:sid", () => HttpResponse.json(fx.skillDetail)),
     // 0.18.9 suggest, check, save, off, remove, one stack, the marketplace's (before .../stacks/:name/install takes "market")

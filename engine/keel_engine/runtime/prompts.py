@@ -135,6 +135,13 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
     elif kdir and not section:
         lines.append(f"keel's memory of this project is in {kdir}/ (start with index.md if it exists, then only the "
                      "section you need). Read it before exploring the code and trust its file:line citations.")
+    if not section:
+        # 0.18.57 the repo's own rules for coding agents (AGENTS.md, CLAUDE.md, ...), found at init / knowledge refresh
+        from . import project_rules as rules_mod
+
+        own = rules_mod.prompt_line(root)
+        if own:
+            lines.append(own)
     mine = [u["path"] for u in unlocks or [] if u.get("phase") == phase]
     if mine:
         lines.append("Unlocked for this phase by the user: " + ", ".join(mine))

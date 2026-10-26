@@ -432,6 +432,9 @@ def _init_summary(a: ActionInput) -> ActionResult:
         lines.append(f"  failing: rung {r['n']} {r['name']} ($ {r.get('cmd')})")
     lines.append("Knowledge: " + (f"wrote {', '.join(written)}" if written else "wrote no section")
                  + (f"; kept {', '.join(kept)} as they were" if kept else "") + f" (in {lay.knowledge}/).")
+    from . import project_rules as rules_mod
+
+    lines += rules_mod.hand_over_lines(a.data.get("project_rules"), a.root)
     lines.append(f"Layout: {lay.name} — " + ("keel's files are committed with the code (docs/)." if lay.name == "repo"
                                              else "keel's files stay in .keel/, out of git."))
     lines += ["", "Not checked:", "- behaviour: the ladder checks that things start, not that endpoints do the right thing "
@@ -458,6 +461,14 @@ def ladder_optional() -> set[int]:
     return set(run_ladder.OPTIONAL)
 
 
-ACTIONS = {"arch_detect": arch_detect, "arch_set": arch_set, "ladder_soft": ladder_soft, "ladder_retry": ladder_retry,
+async def project_rules(a: ActionInput) -> ActionResult:
+    """Finds the repo's own rules for coding agents (AGENTS.md, CLAUDE.md, .claude/skills, ...), writes the knowledge
+    page project-rules.md and .keel/project-rules.json (which agents load each skill)."""
+    from . import project_rules as rules_mod
+
+    return await rules_mod.project_rules(a)
+
+
+ACTIONS = {"arch_detect": arch_detect, "arch_set": arch_set, "project_rules": project_rules, "ladder_soft": ladder_soft, "ladder_retry": ladder_retry,
            "rung_apply": rung_apply, "rung_report": rung_report, "git_check": git_check,
            "git_init": git_init, "init_summary": init_summary}

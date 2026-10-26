@@ -562,7 +562,7 @@ export type CustomAgent = {
 };
 export type TestResult = { ok: boolean; text?: string; ms: number; error?: string };
 
-export type SkillSource = "keel" | "keel pack" | "claude" | "yours" | "marketplace";
+export type SkillSource = "keel" | "keel pack" | "claude" | "yours" | "marketplace" | "repo";
 /** 0.18.6 where a skill from the marketplace came from; edited: its text was changed here since. */
 export type SkillMarket = { catalog: string; name: string; version: string; edited: boolean };
 export type Skill = {
@@ -580,6 +580,9 @@ export type Skill = {
   market?: SkillMarket | null;
 };
 export type SkillDetail = Skill & { body: string; refs: { path: string; tokens: number }[] };
+/** 0.18.57 Skills › Found in the repo: the repo's own docs and skills for coding agents (init, knowledge refresh). */
+export type RepoSkill = { id: string; name: string; path: string; about: string; use: "tests" | "implementation" | null; why: string; agents: string[] };
+export type RepoSkills = { on: boolean; found_at: string | null; docs: { path: string; title: string }[]; skills: RepoSkill[]; attached: string[] };
 
 export type Stack = {
   name: string;
@@ -882,6 +885,8 @@ export type Settings = {
   notify: "all" | "needs_you" | "none";
   env_names: string[];
   mcp: string[];
+  /** 0.18.57 the repo's own skills are loaded for their agents (Skills › Found in the repo) */
+  repo_skills?: boolean;
 };
 export type ProjectSettings = { general: Settings; overrides: Partial<Settings>; effective: Settings;
   /** B15 the General keys someone saved (the others are keel's defaults). */
@@ -1200,7 +1205,9 @@ export const api = {
   deleteAgent: (pid: string, aid: string) => del(`/projects/${e(pid)}/agents/${e(aid)}`),
   testAgent: (aid: string, pid: string) => post<TestResult>(`/agents/${e(aid)}/test`, { pid }),
   skills: (pid: string) => get<Skill[]>(`/projects/${e(pid)}/skills`),
-  skill: (sid: string) => get<SkillDetail>(`/skills/${e(sid)}`),
+  skill: (sid: string, pid?: string) => get<SkillDetail>(`/skills/${e(sid)}${pid ? `?project=${e(pid)}` : ""}`),
+  repoSkills: (pid: string) => get<RepoSkills>(`/projects/${e(pid)}/skills/repo`),
+  repoSkillsOn: (pid: string, on: boolean) => put<RepoSkills>(`/projects/${e(pid)}/skills/repo`, { on }),
   newSkill: (pid: string, s: { name: string; kind: string; stack: string; body: string }) => post<Skill>(`/projects/${e(pid)}/skills`, s),
   saveSkill: (pid: string, sid: string, s: { agents?: string[]; when?: string; body?: string }) =>
     put<Skill>(`/projects/${e(pid)}/skills/${e(sid)}`, s),

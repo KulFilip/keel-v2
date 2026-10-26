@@ -25,14 +25,14 @@ CODE_ACTIONS = {"verify_red", "verify_green", "verify_after_green", "verify_rele
                 "bug_plan", "bug_drop_red", "bug_reset",
                 # the feature flow (runtime/feature_actions.py)
                 "preflight", "explore_areas", "spec_sync", "spec_freeze", "spec_restart", "amend_start", "spec_amendment",
-                "spec_amend_commit", "amend_reorder", "amend_with_note", "amend_stop", "stuck", "show_diff", "test_check", "security_scope", "e2e_scope", "e2e_unrun", "verify_e2e", "smoke_scope",
+                "spec_amend_commit", "amend_reorder", "amend_with_note", "amend_stop", "stuck", "show_diff", "test_check", "thread_view", "security_scope", "e2e_scope", "e2e_unrun", "verify_e2e", "smoke_scope",
                 "verify_smoke", "close_flow", "full_review", "ship_ready", "ship_stop", "contract_check", "stack_up",
                 # static checks (runtime/lint_actions.py)
                 "lint_scope", "lint_run", "lint_report", "verify_lint"}
 # the hunt and hunt-next flows (runtime/hunt_actions.py), init's extra steps (runtime/init_actions.py), review-pr's and clarify's
 FLOW_ACTIONS = {"hunt_start", "hunt_deps", "hunt_confirm", "hunt_ingest", "hunt_verdicts", "hunt_group", "hunt_report",
                 "hunt_commit", "hunt_close", "hunt_take", "hunt_map", "hunt_stack", "hunt_preview", "arch_detect", "arch_set",
-                "ladder_soft", "ladder_retry", "rung_apply", "rung_report", "git_check", "git_init", "init_summary",
+                "ladder_soft", "ladder_retry", "rung_apply", "rung_report", "git_check", "git_init", "init_summary", "project_rules",
                 # review-pr (runtime/ticket_actions.py)
                 "ticket_prep", "ticket_build", "ticket_claims", "ticket_record", "ticket_share", "ticket_comment",
                 # clarify (runtime/clarify_flow.py)

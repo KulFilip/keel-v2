@@ -275,6 +275,11 @@ GET    /api/projects/{pid}/skills                     → Skill[]
 GET    /api/skills/{sid}                              → Skill & { body: string, refs: {path, tokens}[] }
 POST   /api/projects/{pid}/skills         { name, kind, stack, body } → Skill
 PUT    /api/projects/{pid}/skills/{sid}   { agents?, when?, body? }
+GET    /api/projects/{pid}/skills/repo                → { on, found_at, docs: {path, title}[], skills: {id, name, path, about, use: "tests"|"implementation"|null, why, agents}[], attached: string[] }
+PUT    /api/projects/{pid}/skills/repo    { on }      → the same   (0.18.57 the repo's own skills, from .keel/project-rules.json
+                                                        written by init / knowledge-refresh; source "repo", read live from the
+                                                        repo; on = the project's setting repo_skills; a repo skill's body is
+                                                        changed and the skill removed in the repo: 409 here)
 type Skill = { id, kind, source: "keel"|"keel pack"|"claude"|"yours", stack, version, tokens, agents: string[], when: string, enabled: bool }
 GET    /api/projects/{pid}/stacks                     → Stack[]   { name, lane, source, detected, detect, layers, commands: {name, cmd}[], tools: {name, on, fail}[], skills }
 GET    /api/mcp-servers                               → McpServer[]
@@ -298,7 +303,8 @@ PUT    /api/settings/general        Partial<Settings>
 GET    /api/projects/{pid}/settings                   → { general: Settings, overrides: Partial<Settings>, effective: Settings, general_saved: string[] }   (general_saved: the General keys someone saved, B15)
 PUT    /api/projects/{pid}/settings  { [key]: value | null }    (null = use general)
 type Settings = { gates_mode, keel_rules, fix_attempts, coverage_min, default_model: Model, implementer_model: Model, reviewer_model: Model, cheaper_model: Model,
-                  cap_tokens, on_cap, branch_pattern, web_lane_worktree, push_pr, notify: "all"|"needs_you"|"none", env_names: string[], mcp: string[] }
+                  cap_tokens, on_cap, branch_pattern, web_lane_worktree, push_pr, notify: "all"|"needs_you"|"none", env_names: string[], mcp: string[],
+                  repo_skills: bool }
 GET    /api/connections                               → { providers: { id, label, modes: { id, label, ready: bool, detail, need?: "cli"|"login" }[], selected, key_set: bool, key_hint?: string }[], machine: { name, ok, version? }[] }
                                                         // v0.4.2: the 8 program checks (node git java docker claude codex copilot opencode) run in parallel, 5 s each, cached 1 min
 PUT    /api/connections/{provider}  { mode }

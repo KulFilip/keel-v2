@@ -44,6 +44,7 @@ REGISTRY: dict[str, tuple[str, ...]] = {
     "REFACTOR": ("done", "none"),
     "VERDICT": ("promising", "possible", "no"),
     "CONFLICTS": ("none", "found"),
+    "INTENT": ("met", "missed"),          # 0.18.57 address: does the change do what the reviewer asked?
     "AMEND": (),
     "BLOCKED": (),
 }

@@ -2,18 +2,18 @@
 // and skills only this project has. Open one to see its size, who loads it and when, and edit SKILL.md.
 
 import { Fragment, useState } from "react";
-import { api, errorParts, type Agent, type Skill, type Stack } from "../api";
+import { api, errorParts, type Agent, type RepoSkills, type Skill, type Stack } from "../api";
 import { EmptyState, SearchBox, Skeleton, Toolbar } from "../components/page";
 import { Drawer, ErrorBox, Loading, PageHead, Panel, Tabs } from "../components/ui";
 import { useApp, useLoad } from "../state";
 
-type Src = "all" | "keel" | "keel pack" | "claude" | "yours" | "marketplace";
-const SRC_LABEL: Record<Src, string> = { all: "All", keel: "keel", "keel pack": "keel pack", claude: "Claude skills", yours: "yours", marketplace: "marketplace" };
+type Src = "all" | "keel" | "keel pack" | "claude" | "repo" | "yours" | "marketplace";
+const SRC_LABEL: Record<Src, string> = { all: "All", keel: "keel", "keel pack": "keel pack", claude: "Claude skills", repo: "from the repo", yours: "yours", marketplace: "marketplace" };
 const k1 = (n: number) => `${(n / 1000).toFixed(1)}k`;
 
 function SkillDrawer({ pid, id, agents, onClose, onSaved }: { pid: string; id: string; agents: Agent[]; onClose: () => void; onSaved: () => void }) {
   const { toast } = useApp();
-  const sk = useLoad(`skill:${id}`, () => api.skill(id), { live: false });
+  const sk = useLoad(`skill:${pid}:${id}`, () => api.skill(id, pid), { live: false });
   const [who, setWho] = useState<string[] | null>(null);
   const [when, setWhen] = useState<string | null>(null);
   const [body, setBody] = useState<string | null>(null);
@@ -67,8 +67,9 @@ function SkillDrawer({ pid, id, agents, onClose, onSaved }: { pid: string; id: s
             <input type="text" id="sk-when" value={when ?? s.when} onChange={(e) => setWhen(e.target.value)} />
             <span className="hint">phase · layer · stack. Empty means "on demand": the agent sees the name and asks for it.</span></div>
           <div className="field"><label htmlFor="sk-body">SKILL.md</label>
-            <textarea id="sk-body" value={body ?? s.body} onChange={(e) => setBody(e.target.value)} style={{ minHeight: 260 }} readOnly={s.source === "keel"} />
+            <textarea id="sk-body" value={body ?? s.body} onChange={(e) => setBody(e.target.value)} style={{ minHeight: 260 }} readOnly={s.source === "keel" || s.source === "repo"} />
             {s.source === "keel" && <span className="hint">keel's own skills are read-only here. Copy it as a new skill to change it.</span>}
+            {s.source === "repo" && <span className="hint">This skill lives in the repo: change it there. keel reads it from the repo each time.</span>}
           </div>
           {err && <ErrorBox error={err} />}
         </>
@@ -168,6 +169,71 @@ function ImportSkillDrawer({ pid, onClose, onImported }: { pid: string; onClose:
   );
 }
 
+const USE_LABEL = { tests: "for tests", implementation: "for code changes" } as const;
+
+/** 0.18.57 Found in the repo: the repo's own docs and skills for coding agents, who loads them, and the off switch. */
+function RepoFound({ pid, onChanged }: { pid: string; onChanged: () => void }) {
+  const { toast } = useApp();
+  const repo = useLoad(`skills-repo:${pid}`, () => api.repoSkills(pid), { live: false });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<{ message: string; hint?: string } | null>(null);
+  const [now, setNow] = useState<RepoSkills | null>(null);
+  const r = now ?? repo.data;
+  if (repo.error) return null;
+  if (!r || (!r.skills.length && !r.docs.length)) return null;
+  const flip = async (on: boolean) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      setNow(await api.repoSkillsOn(pid, on));
+      toast(on ? "The repo's skills are loaded for their agents again." : "The repo's skills are off: listed, loaded by no agent.");
+      onChanged();
+    } catch (e) {
+      setErr(errorParts(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const n = (k: number, one: string) => `${k} ${one}${k === 1 ? "" : "s"}`;
+  return (
+    <section className="panel sh-repo" aria-label="Found in the repo">
+      <div className="panel-head">
+        <h3>Found in the repo: {n(r.skills.length, "skill")}, {n(r.docs.length, "doc")}{r.on && r.attached.length ? <> · attached to: {r.attached.join(", ")}</> : null}</h3>
+        <label className="chk">
+          <input type="checkbox" checked={r.on} disabled={busy} aria-label="Load the repo's skills for their agents" onChange={(e) => void flip(e.target.checked)} />{" "}
+          load them
+        </label>
+      </div>
+      <div className="panel-body grid" style={{ gap: 8 }}>
+        {!r.on && <p className="sub" style={{ margin: 0 }}>Off: listed here, loaded by no agent.</p>}
+        {r.skills.length > 0 && (
+          <ul className="sh-repo-list">
+            {r.skills.map((s) => (
+              <li key={s.id}>
+                <b className="mono">{s.id}</b> <span className="sub mono">{s.path}</span>
+                {s.about && <span className="sub"> — {s.about}</span>}
+                <div className="sub">
+                  {s.use ? USE_LABEL[s.use] : "nothing says when to load it"}
+                  {s.why && s.why !== "its description" ? <> ({s.why})</> : s.why ? " (its description)" : null}
+                  {" · "}{s.agents.length ? `loaded by ${s.agents.join(", ")}` : "on no agent"}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+        {r.docs.length > 0 && (
+          <p className="sub" style={{ margin: 0 }}>
+            Instructions for coding agents: {r.docs.map((d, i) => <Fragment key={d.path}>{i ? ", " : ""}<span className="mono" title={d.title}>{d.path}</span></Fragment>)}.
+            Every agent's prompt names them.
+          </p>
+        )}
+        <span className="hint">Found at init and at a knowledge refresh{r.found_at ? ` (last: ${r.found_at.slice(0, 10)})` : ""}. Open a skill to change who loads it.</span>
+        {err && <ErrorBox error={err} />}
+      </div>
+    </section>
+  );
+}
+
 export function SkillsPage({ pid }: { pid: string }) {
   const { project } = useApp();
   const skills = useLoad(`skills:${pid}`, () => api.skills(pid), { live: false });
@@ -193,6 +259,7 @@ export function SkillsPage({ pid }: { pid: string }) {
         <Tabs value={filter} onChange={setFilter} label="Source" options={(Object.keys(SRC_LABEL) as Src[]).map((k) => [k, <>{SRC_LABEL[k]}<span className="sh-n">{count(k)}</span></>])} />
         <SearchBox id="skq" value={q} onChange={setQ} label="Search skills" />
       </Toolbar>
+      <RepoFound pid={pid} onChanged={() => void skills.reload()} />
       <div className="panel">
         {skills.error ? <div className="panel-body"><ErrorBox error={skills.error} onRetry={() => void skills.reload()} /></div>
           : !skills.data ? <Skeleton lines={6} label="Loading skills" />

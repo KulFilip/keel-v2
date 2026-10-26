@@ -82,6 +82,12 @@ export function useJudgeHidden(pid: string, reviewKey: string) {
 
 // ---------------------------------------------------------------- small helpers (exported for tests)
 
+/** The thread's comments as a quote ("> bo: ..."), then an empty line for your answer: "What should the fix be?". */
+export const quoteThread = (t: ReviewThread) =>
+  t.comments
+    .map((c) => `${c.author}: ${c.body}`.split("\n").map((l) => (l ? `> ${l}` : "> ")).join("\n"))
+    .join("\n> \n") + "\n\n";
+
 const same = (a: string | null | undefined, b: string | null | undefined) =>
   !!a && !!b && a.toLowerCase() === b.toLowerCase();
 
@@ -681,7 +687,7 @@ export function ThreadBox({
     if (text) setReplying(true);
   }, [text]);
   const [busy, setBusy] = useState(false);
-  const [confirm, setConfirm] = useState<null | { note?: string }>(null);
+  const [confirm, setConfirm] = useState<null | { note?: string; fix?: string }>(null);
   const [err, setErr] = useState<R.Err | null>(null);
   const [started, setStarted] = useState<string | null>(null);
   const ta = useRef<HTMLTextAreaElement>(null);
@@ -739,7 +745,11 @@ export function ThreadBox({
     if (!(await R.judge(pid, reviewKey, t.id, opts)))
       failed("keel could not check this thread");
   };
-  const startAddress = async (note?: string) => {
+  // 0.18.57 no reply of yours in the thread: Address it asks what the fix should be, the others' words quoted above
+  const replied = t.comments.some((c) => same(c.author, view.me));
+  const askFix = (note?: string) =>
+    setConfirm({ note, fix: replied ? undefined : quoteThread(t) });
+  const startAddress = async (note?: string, fix?: string) => {
     setErr(null);
     const r = await R.address(
       pid,
@@ -747,6 +757,7 @@ export function ThreadBox({
       t.id,
       note,
       pickedFlow !== flowName ? pickedFlow : undefined,
+      fix?.trim() ? fix.trim() : undefined,
     );
     setConfirm(null);
     if (r) setStarted(r.note);
@@ -858,7 +869,7 @@ export function ThreadBox({
             flowName={flowName}
             allowHarder={cfg?.judge?.allow_harder ?? true}
             onUse={useReply}
-            onAddress={(r) => setConfirm({ note: judgeNote(r) })}
+            onAddress={(r) => askFix(judgeNote(r))}
             onAsk={followUp}
             onAgain={(harder) => void check({ again: true, harder })}
             onDismiss={judgeId && onHide ? () => onHide(judgeId) : undefined}
@@ -947,6 +958,21 @@ export function ThreadBox({
             {pickedFlow} flow there with this thread as its request. It pushes
             and posts nothing.
           </span>
+          {confirm.fix !== undefined && (
+            <label className="rv-fix">
+              <span>
+                You have not replied in this thread. What should the fix be?
+                The reviewer's words are quoted; write your answer under them
+                (it goes to the flow with the thread).
+              </span>
+              <textarea
+                aria-label="What should the fix be?"
+                rows={5}
+                value={confirm.fix}
+                onChange={(x) => setConfirm({ ...confirm, fix: x.target.value })}
+              />
+            </label>
+          )}
           {flowChoices.length > 1 && (
             <label className="rv-row">
               <span>Flow</span>
@@ -968,7 +994,7 @@ export function ThreadBox({
               type="button"
               className="btn sm primary"
               disabled={addressing}
-              onClick={() => void startAddress(confirm.note)}
+              onClick={() => void startAddress(confirm.note, confirm.fix)}
             >
               {addressing ? "Starting…" : "Start the flow"}
             </button>
@@ -1025,9 +1051,7 @@ export function ThreadBox({
             className="btn sm rv-ai-btn"
             disabled={addressing}
             onClick={() =>
-              setConfirm({
-                note: judgeNote(judge?.status === "done" ? judge.result : null),
-              })
+              askFix(judgeNote(judge?.status === "done" ? judge.result : null))
             }
           >
             ✦ Address it

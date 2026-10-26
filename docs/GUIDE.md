@@ -85,7 +85,7 @@ The [README](../README.md) is the short version. This page has the details.
 | **feature** | web check (and web docs when needed) → spec (with questions) ◆ → plan → contract ◆ → per criterion: failing test, code, review ◆ → integration, security, full review, e2e, smoke → ship |
 | **change** | small change without a spec: trivial (one commit) or 1–3 criteria; too big → hands over to feature |
 | **quick** | one agent makes the change and a test → keel runs the tests (2 fix rounds) → your one look ◆ → one commit; no spec, no ship |
-| **address** | a reviewer's comment ("Address it") or a change to test code only: one agent changes the code and its tests → keel runs the tests (2 fix rounds) → your one look ◆ → one commit; no test-first loop |
+| **address** | a reviewer's comment ("Address it") or a change to test code only: one agent changes the code and its tests → keel runs the tests (2 fix rounds) → a check against the reviewer's thread → your one look ◆ (the thread next to the diff) → one commit; no test-first loop |
 | **implement** | the usual order, not test-first: the code → its tests → keel runs them; pass → one commit, done; fail → a fix and the tests again (2 rounds); no gate |
 | **small** | a short plan with 1–3 criteria ◆ → per criterion a failing test and the code → one review (its blocking findings fixed, 2 rounds) → your one look ◆; no ship |
 | **fix** | reproduce the bug as a failing test ◆ → find the cause (parallel investigators) ◆ → fix → regression test → ship |
@@ -211,9 +211,18 @@ browser is tagged `[E2E]`; a check that must also pass after a deploy, `[SMOKE]`
 ### address
 
 ```
- preflight ─ change (code and tests) ─ run the tests (2 fix rounds) ─ diff ─◆ look ─ commit ─ done
+ preflight ─ change (code and tests) ─ run the tests (2 fix rounds) ─ diff ─ intent check ─ thread view ─◆ look ─ commit ─ done
+                       ▲                                                              │ missed (1 round)
+                       └──────────────────────────────────────────────────────────────┘
 ```
 
+- The request is the review thread as it is (the reviewer's words, every reply, your own reply, file:line and the
+  code), marked as data. The agent builds what the reviewer asked for (the structure or behaviour the thread names, not
+  a smaller stand-in) where the project keeps code of that kind.
+- **Intent check**: a reviewer agent compares the diff with the thread. "Does not do what the reviewer asked" goes back
+  to the agent once with the reason; after that it is yours to decide. The look shows the thread next to the diff, and
+  a miss first.
+- No reply of yours in the thread: Address it asks "What should the fix be?" first (the reviewer's words above it).
 - What "Address it" on a review thread starts (Settings › Code Review › Address it picks another flow), and what keel
   suggests when every file a request names is a test: there is no new behaviour for a failing test to describe.
 - A change with no behaviour change (an extract into a helper, a rename) adds no test: the tests passing is the proof.

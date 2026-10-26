@@ -73,6 +73,9 @@ data class Settings(
     val notify: String = "all",
     val envNames: List<String> = emptyList(),
     val mcp: List<String> = listOf("keel"),
+    /** 0.18.57 the skills the repo keeps for coding agents (.claude/skills, .opencode/skills), found at init and at a
+     *  knowledge refresh, are loaded for the agents they are for; false: listed on the Skills page, loaded by none. */
+    val repoSkills: Boolean = true,
     /** v0.13.0 what this keel does (general only): auto = Product and Dev when the Product add-on is installed, else Dev. */
     val keelMode: String = "auto",
 ) {
@@ -81,7 +84,7 @@ data class Settings(
         val KEYS = listOf(
             "gates_mode", "run_mode", "fix_attempts", "coverage_min", "default_model", "implementer_model",
             "reviewer_model", "cheaper_model", "local_only", "cap_tokens", "on_cap", "usage_warn", "usage_pause", "branch_pattern", "web_lane_worktree",
-            "push_pr", "commit_author", "commit_coauthor", "ci_on_failure", "notify", "env_names", "mcp", "keel_mode",
+            "push_pr", "commit_author", "commit_coauthor", "ci_on_failure", "notify", "env_names", "mcp", "repo_skills", "keel_mode",
         )
         /** Settings of the whole keel only: a project cannot override them. */
         val GENERAL_ONLY = setOf("keel_mode")

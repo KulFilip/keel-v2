@@ -301,6 +301,23 @@ describe("Workflows page (builder)", () => {
     expect(screen.getByRole("region", { name: "Step" })).toHaveTextContent("Branch");
   });
 
+  it("a selected step with no name: the palette adds it after this step, never after undefined", async () => {
+    const user = userEvent.setup();
+    const fix = db.workflows.find((x) => x.id === "fix")!;
+    fix.steps = fix.steps.map((s) => (s.id === "f4" ? ({ ...s, name: undefined } as unknown as typeof s) : s));
+    location.hash = "#/workflows/fix";
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /^bug-investigate, agent/ }));
+    await user.clear(within(screen.getByRole("region", { name: "Step" })).getByLabelText("Name"));
+    const palette = screen.getByRole("group", { name: "Blocks to add" });
+    expect(palette).toHaveTextContent("click to add it after this step");
+    expect(within(palette).getByRole("button", { name: "Add Code block after this step" })).toBeInTheDocument();
+    await user.click(document.querySelector('.wf-canvas [data-block="f4"] button') as HTMLElement);
+    expect(palette).toHaveTextContent("click to add it after this step");
+    expect(document.querySelector(".wf-canvas")!.innerHTML).not.toMatch(/undefined|after\s*"/);
+    expect(screen.queryAllByRole("button", { name: /after undefined|after $/ })).toEqual([]);
+  });
+
   it("selecting a block opens its editor; edits show in the block; What it does explains the draft", async () => {
     const user = userEvent.setup();
     location.hash = "#/workflows/feature";

@@ -55,5 +55,5 @@ class CoreSettingsSections(private val mapper: ObjectMapper) {
     fun notifySettings(): SettingsSection = section("notify", "Notifications", 50, "notify")
 
     @Bean
-    fun envSettings(): SettingsSection = section("env", "Environment", 60, "env_names", "mcp")
+    fun envSettings(): SettingsSection = section("env", "Environment", 60, "env_names", "mcp", "repo_skills")
 }
