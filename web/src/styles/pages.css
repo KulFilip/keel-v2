@@ -255,6 +255,12 @@
 .sh-n { color: var(--faint); font-variant-numeric: tabular-nums; font-size: 12px; }
 .sh-table td { vertical-align: top; }
 .sh-steps { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+/* 0.18.57 Skills › Found in the repo */
+.sh-repo { margin-bottom: 16px; }
+.sh-repo .panel-head { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.sh-repo .panel-head h3 { margin: 0; font-size: 14px; min-width: 0; }
+.sh-repo-list { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13px; }
+.sh-repo-list .mono.sub { overflow-wrap: anywhere; }
 .stk-detect { overflow-wrap: anywhere; }
 .stk-detail { min-width: 0; scroll-margin-top: 12px; }
 .stk-grid { align-items: start; }

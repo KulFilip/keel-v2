@@ -78,6 +78,10 @@ export const SECTIONS: Sec[] = [
   { id: "env", title: "Environment", sub: "What agents may see from this machine.", rows: [
     { key: "env_names", label: "Variables agents may see (names only)", kind: { t: "list" }, help: "Comma-separated names. Agents get these variables; every other one is hidden." },
     { key: "mcp", label: "MCP servers", kind: { t: "list" }, help: "Servers this project's agents may call. Which agent may use which is on the Tools page." },
+    { key: "repo_skills", label: "Skills found in the repo", def: true, kind: { t: "bool", on: "load them", off: "list only" },
+      help: (v) => v === false
+        ? "The repo's own skills (.claude/skills, .opencode/skills) are listed on the Skills page, loaded by no agent."
+        : "The repo's own skills (.claude/skills, .opencode/skills), found at init and at a knowledge refresh, are loaded for the agents they are for (Skills › Found in the repo)." },
   ] },
   // phone access: draws itself (components/Devices.tsx); the same list in both tabs, it is for the whole keel
   { id: "devices", title: "Devices", sub: "Phones paired with this keel (keel's Android app). For the whole keel.", rows: [], component: DevicesSection },
