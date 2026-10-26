@@ -48,6 +48,9 @@ data class HostMount(val container: String, val host: String) {
     private val c = container.trim().trimEnd('/')
     private val h = host.trim().trimEnd('/')
 
+    /** Whether keel knows where its folder is on the person's computer; unknown, a path says nothing about the folder. */
+    val known: Boolean get() = c.isNotEmpty() && h.isNotEmpty()
+
     /** The folder's path on the person's computer (a folder outside the main one is mounted at its own path). */
     fun hostOf(root: String): String = when {
         c.isEmpty() || h.isEmpty() -> root
@@ -94,7 +97,7 @@ class ProjectService(
 
     /** Saves where the project's folder is on the person's computer, so another mount finds it again. */
     private fun rememberHost(row: ProjectRow): ProjectRow {
-        if (!row.root.contains(PARKED)) runCatching { kv.put(hostKey(row.id), mount.hostOf(row.root)) }
+        if (mount.known && !row.root.contains(PARKED)) runCatching { kv.put(hostKey(row.id), mount.hostOf(row.root)) }
         return row
     }
 
@@ -104,6 +107,7 @@ class ProjectService(
      * connection and caps, instead of a new "<name>-2". Only a project keel cannot reach where it was saved.
      */
     private fun movedHere(root: String): ProjectRow? {
+        if (!mount.known) return null
         val host = mount.hostOf(root)
         val rows = jdbc.query("SELECT id, name, root FROM projects WHERE root <> ?", { rs, _ -> ProjectRow(rs.getString(1), rs.getString(2), rs.getString(3)) }, root)
         fun gone(r: ProjectRow) = !Files.exists(Paths.get(r.root.substringBefore(PARKED)).resolve(".git"))
@@ -156,7 +160,7 @@ class ProjectService(
         val root = Paths.get(rootText).toAbsolutePath().normalize().toString()
         val id = keel.api.common.Slug.of(name)
         val here = jdbc.query("SELECT id, name, root FROM projects WHERE root = ?", { rs, _ -> ProjectRow(rs.getString(1), rs.getString(2), rs.getString(3)) }, root).firstOrNull()
-        if (here != null && (here.id == id || mount.hostOf(root) == runCatching { kv.get<String>(hostKey(here.id)) }.getOrNull())) return rememberHost(here)
+        if (here != null && (here.id == id || mount.known && mount.hostOf(root) == runCatching { kv.get<String>(hostKey(here.id)) }.getOrNull())) return rememberHost(here)
         if (here != null) jdbc.update("UPDATE projects SET root = ? WHERE id = ?", "$root$PARKED${here.id}", here.id)
         // 0.18.57 the same folder on the person's computer, seen through another mount before (plain <-> --docker)
         movedHere(root)?.let { moved -> return moved.also { if (scan) triggerScan(it) } }
