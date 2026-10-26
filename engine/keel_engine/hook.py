@@ -234,6 +234,11 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
     keyed = _path_arg(ti)
     if keyed and tool != "Bash" and rules.keel_key_file(_locate(root, keyed)[1]):
         return "This is keel's own key folder: agents never read, search or change it."
+    # keel 0.18.58 keel's own installed code: no agent reads it to get around a rule (rules.keel_engine_file)
+    if keyed and tool != "Bash" and rules.keel_engine_file(_locate(root, keyed)[1], root):
+        return rules.ENGINE_REFUSAL
+    if tool == "Bash" and rules.keel_engine_words(str(ti.get("command") or ""), root):
+        return rules.ENGINE_REFUSAL
     if readonly and tool in WRITE_TOOLS:
         return ro(run_mode.READONLY_EDIT)
     if tool in WRITE_TOOLS:

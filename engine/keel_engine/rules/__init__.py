@@ -80,6 +80,43 @@ def keel_key_file(path: str | Path | None) -> bool:
     except Exception:  # noqa: BLE001 - the rule must never crash the guard
         return False
 
+# keel 0.18.58 keel's own installed code (Docker /opt/engine/keel_engine): an agent that a rule blocked read hook.py and rules/ to
+# learn how the guard decides, then put the blocked file somewhere else. Agents never read keel's code to get around
+# a rule; a project that is keel's own source (the folder holds the engine) reads it as any project.
+ENGINE_HOME = Path(__file__).resolve().parent.parent
+ENGINE_REFUSAL = ("This is keel's own code: agents do not read it to learn how keel's rules decide. If a rule blocks "
+                  "you, stop and ask the person. Moving the blocked file somewhere else is a workaround, not a fix.")
+
+
+def _under(p: str, home: str) -> bool:
+    return p == home or p.startswith(home + "/")
+
+
+def keel_engine_file(path: str | Path | None, root: str | Path | None = None) -> bool:
+    """Is this file part of keel's installed engine (ENGINE_HOME), outside the project the agent works on?"""
+    if not path:
+        return False
+    try:
+        home = str(ENGINE_HOME).replace("\\", "/")
+        p = str(Path(path).resolve()).replace("\\", "/")
+        if not _under(p, home):
+            return False
+        return not (root and _under(p, str(Path(root).resolve()).replace("\\", "/")))
+    except Exception:  # noqa: BLE001 - the rule must never crash the guard
+        return False
+
+
+def keel_engine_words(command: str, root: str | Path | None = None) -> bool:
+    """Does this shell command name keel's installed engine folder (outside the project)?"""
+    home = str(ENGINE_HOME).replace("\\", "/")
+    try:
+        if root and _under(home, str(Path(root).resolve()).replace("\\", "/")):
+            return False
+    except Exception:  # noqa: BLE001
+        return False
+    return home in (command or "") or "/opt/engine/keel_engine" in (command or "")
+
+
 LANE_OF = {"api-main": "api", "api-test": "api", "migration": "api", "web-src": "web", "web-test": "web"}
 LANE_SCOPED_PHASES = {"red", "green"}
 

@@ -144,6 +144,28 @@ def test_absolute_paths_are_judged_relative_to_the_project(capsys, tmp_path, roo
     assert code == 2 and f'{PROD}: editing api-main is blocked in phase "red"' in err
 
 
+def test_agents_never_read_keels_own_code_to_get_around_a_rule(capsys, tmp_path, root):
+    # 0.18.58 e2e: blocked three times, an implementer read /opt/engine/keel_engine/hook.py and rules/, then put the
+    # blocked file in another folder
+    ctx = ctx_file(tmp_path, root, "green")
+    hook_py = str(rules.ENGINE_HOME / "hook.py")
+    for raw in (call("Read", file_path=hook_py), call("Grep", pattern="phase", path=str(rules.ENGINE_HOME / "rules")),
+                call("Bash", command=f"cat {hook_py}"), call("Bash", command="sed -n 1,80p /opt/engine/keel_engine/rules/__init__.py")):
+        code, err = judge(capsys, raw, ctx)
+        assert code == 2 and "keel's own code" in err and "stop and ask" in err
+    # the project's own files are read as before
+    assert judge(capsys, call("Read", file_path="README.md"), ctx)[0] == 0
+    assert judge(capsys, call("Bash", command="cat README.md"), ctx)[0] == 0
+
+
+def test_a_project_that_is_keels_own_source_reads_its_engine():
+    home = rules.ENGINE_HOME
+    assert rules.keel_engine_file(home / "hook.py", root="/elsewhere")
+    assert not rules.keel_engine_file(home / "hook.py", root=home.parent.parent)
+    assert not rules.keel_engine_words(f"cat {home}/hook.py", root=home.parent.parent)
+    assert not rules.keel_engine_words("/opt/engine/.venv/bin/python -m pytest", root="/elsewhere")
+
+
 def test_an_unlock_allows_exactly_that_path_in_that_phase(capsys, tmp_path, root):
     ctx = ctx_file(tmp_path, root, "red", unlocks=[{"path": PROD, "phase": "red", "by": "user"}])
     assert judge(capsys, call("Write", file_path=PROD), ctx)[0] == 0

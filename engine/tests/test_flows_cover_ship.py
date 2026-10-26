@@ -762,3 +762,40 @@ def test_skip_payload_simple_forms():
     _s, _l, problem = ship.parse_skips(ship.skip_payload({"skip": "deps"}, names), [{"name": "deps", "band": "deferred"}])
     assert problem and problem.startswith("skipping deps needs a reason")
     assert ship.names_skip({}) is None and ship.names_skip({"skip": []}) == set()
+
+
+def test_a_failing_strict_trace_has_a_way_out_and_a_refactor_counts_as_traced(client, repo, monkeypatch, tmp_path):
+    # 0.18.58 e2e: trace --strict failed on a "no behaviour change" criterion and the gate offered only "try again"
+    # (the same gate came back) or "stop"
+    answers(monkeypatch, {"lens-reviewer": lambda req: CLEAN})
+    script(monkeypatch, ship_plan(trace_strict=[bad("Trace (strict): 1/2 AC(s) have a test commit; no test commit: AC-2.")] * 3))
+    tid = start(client, repo, workflow="ship")
+    s = wait(client, tid)
+    s = decide(client, tid, "approve", payload={"skip": {"release": "no browser surface", "spec_walk": "a short change"},
+                                                "lenses": ["correctness"]})
+    for _ in range(12):
+        w = s.get("waiting") or {}
+        if w.get("step") == "trace":
+            break
+        s = decide(client, tid, "approve")
+    w = s["waiting"]
+    assert w["step"] == "trace" and w["labels"] == {"approve": "Go on with a warning", "reject": "Stop"}, w
+    assert "trying again finds the same thing" in w["detail"]
+    s = decide(client, tid, "approve")
+    assert (s.get("waiting") or {}).get("step") != "trace", s
+    assert any("trace --strict" in str(w) for w in s["warnings"]), s["warnings"]
+
+    from keel_engine.runtime import verdict_actions
+    root = tmp_path / "r"
+    root.mkdir()
+    run = lambda *a: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@localhost", *a], cwd=root, check=True,
+                                    capture_output=True)
+    run("init", "-q", "-b", "main")
+    (root / "a.py").write_text("x = 1\n")
+    run("add", "-A")
+    run("commit", "-qm", "feat(AC-2): the fixtures go through one helper")
+    rows = verdict_actions.trace_rows(str(root), [
+        {"id": "AC-2", "layer": "API", "title": "the fixtures go through one helper, no behaviour change", "status": "done"},
+        {"id": "AC-3", "layer": "API", "title": "a total in cents", "status": "done"}])
+    assert rows[0]["complete"] and rows[0]["test"] == "existing tests"
+    assert not rows[1]["complete"]

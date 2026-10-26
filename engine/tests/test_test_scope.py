@@ -134,6 +134,12 @@ def test_a_refactor_criterion_is_proved_by_the_existing_tests_before_and_after(t
     r = asyncio.run(actions.verify_red(a))
     assert r.ok and r.note == "AC-1 is a refactor: no red test; the existing tests pass before the change."
     assert r.update["data"]["refactor_baseline"]["AC-1"]["ok"] is True
+    # 0.18.58 nothing changed yet: the tests passing proves nothing
+    g = asyncio.run(actions.verify_green(ActionInput(root=str(root), phase="green", title="t", ac=ac, acs=[ac], fake=False,
+                                                     flow="small")))
+    assert not g.ok and g.note == "AC-1 is a refactor, and nothing changed."
+    assert "answer FROZEN: <file>" in g.detail
+    (root / "helper.py").write_text("def orders():\n    return []\n")
     g = asyncio.run(actions.verify_green(ActionInput(root=str(root), phase="green", title="t", ac=ac, acs=[ac], fake=False,
                                                      flow="small")))
     assert g.ok and g.note == "AC-1 (refactor): the existing tests pass after the change too."
@@ -200,7 +206,7 @@ def edits_the_test(req, real):
     return "tests/test_scores.py", "def make_fixtures():\n    return []\n", "GREEN: the helper is in.", {}
 
 
-def test_the_same_file_put_back_twice_asks_to_allow_it_and_allow_runs_the_round_again(client, repo, monkeypatch):
+def test_the_same_file_put_back_asks_to_allow_it_and_allow_runs_the_round_again(client, repo, monkeypatch):
     tid, seen, s = guard_loop_flow(client, repo, monkeypatch, edits_the_test)
     w = s["waiting"]
     assert w["step"] == "verify_green", s
@@ -212,13 +218,14 @@ def test_the_same_file_put_back_twice_asks_to_allow_it_and_allow_runs_the_round_
     assert ("keel's rule for this phase blocks changes to `tests/test_scores.py` (test code is frozen while making tests "
             "pass); the change needs that file.") in w["detail"]
     greens = [r for r in seen if r.agent == "implementer" and r.phase == "green"]
-    assert len(greens) == 2                                     # two rounds, no investigator and no stronger model
+    # 0.18.58 the criterion's own title names the file: one round, no investigator and no stronger model
+    assert len(greens) == 1
     assert not [r for r in seen if r.agent == "investigator"]
     assert "Heads-up: this criterion names `tests/test_scores.py`" in greens[0].prompt
     s = decide(client, tid, payload={"choice": "allow"})
     assert any(u["path"] == "tests/test_scores.py" and u["phase"] == "green" for u in s["unlocks"])
     greens = [r for r in seen if r.agent == "implementer" and r.phase == "green"]
-    assert len(greens) == 3 and "The person allowed tests/test_scores.py in phase green" in greens[-1].feedback
+    assert len(greens) == 2 and "The person allowed tests/test_scores.py in phase green" in greens[-1].feedback
     assert "def make_fixtures" in (repo / "tests/test_scores.py").read_text()
     assert s["waiting"]["step"] == "look", s                   # the green commit carries the allowed test file
     log = git(repo, "log", "--format=%s", "--name-only")
@@ -232,6 +239,32 @@ def test_an_agent_that_says_frozen_gets_the_gate_after_one_round(client, repo, m
     assert len([r for r in seen if r.agent == "implementer" and r.phase == "green"]) == 1
     s = decide(client, tid, "reject")                           # a plain reject is the way out: stop
     assert s["status"] == "stopped", s
+
+
+def test_a_criterion_that_asks_for_a_file_names_its_path():
+    assert test_scope.must_exist("tests/Factory/ProductFactory.php exists") == ["tests/Factory/ProductFactory.php"]
+    assert test_scope.must_exist("Add `src/Money.kt` with a currency") == ["src/Money.kt"]
+    assert test_scope.must_exist("create ./docs/RUNNING.md") == ["docs/RUNNING.md"]
+    assert test_scope.must_exist("ProductFactory builds a product") == []
+    assert test_scope.must_exist("the total uses src/Cart.kt") == []
+
+
+def test_a_file_put_somewhere_else_does_not_meet_its_criterion(tmp_path):
+    # 0.18.58 e2e: keel's rule blocked tests/Factory/ProductFactory.php, the agent put it in fixtures/, the suite passed
+    root = repo_with(tmp_path, {"suite.sh": "#!/bin/sh\necho '3 passed'\n",
+                                ".keel/config.yml": "commands:\n  api_test_module: ./suite.sh\n"})
+    (root / "fixtures").mkdir()
+    (root / "fixtures/ProductFactory.php").write_text("<?php\n")      # this round's change, in the wrong place
+    ac = {"id": "AC-2", "layer": "API", "title": "[refactor] tests/Factory/ProductFactory.php exists", "status": "todo"}
+    g = asyncio.run(actions.verify_green(ActionInput(root=str(root), phase="green", title="t", ac=ac, acs=[ac], fake=False,
+                                                     flow="small")))
+    assert not g.ok and g.note == "AC-2 asks for `tests/Factory/ProductFactory.php`, and it is not there."
+    assert "FROZEN: tests/Factory/ProductFactory.php" in g.detail
+    (root / "tests/Factory").mkdir(parents=True)
+    (root / "tests/Factory/ProductFactory.php").write_text("<?php\n")
+    g = asyncio.run(actions.verify_green(ActionInput(root=str(root), phase="green", title="t", ac=ac, acs=[ac], fake=False,
+                                                     flow="small")))
+    assert g.ok
 
 
 def test_the_heads_up_names_only_frozen_files(tmp_path):

@@ -210,6 +210,20 @@ def frozen_note(files: list[dict], phase: str) -> str:
             "`FROZEN: <file>`: keel then asks the person whether to allow that file in this phase.")
 
 
+# keel 0.18.58 a criterion that asks for a file at a path: "tests/Factory/ProductFactory.php exists", "add
+# `src/Money.kt`", "create docs/RUNNING.md". The path has a folder and an extension, so a class name is not one.
+_PATH = r"`?((?:[\w.-]+/)+[\w.-]+\.\w+)`?"
+_EXISTS = re.compile(_PATH + r"\s+(?:exists|is (?:created|added|there))\b", re.I)
+_CREATE = re.compile(r"\b(?:create|creates|add|adds|new file)\s+(?:a |an |the )?(?:new )?(?:file )?" + _PATH, re.I)
+
+
+def must_exist(title: str | None) -> list[str]:
+    """The files a criterion asks for at an exact path (its title), in order."""
+    text = str(title or "")
+    found = [m.group(1) for rx in (_EXISTS, _CREATE) for m in rx.finditer(text)]
+    return [f[2:] if f.startswith("./") else f for f in dict.fromkeys(found)]
+
+
 def named_in(path: str, texts: list[str | None]) -> bool:
     """Does one of these texts name this file (its path, its file name, or its class name of 6+ characters)?"""
     text = "\n".join(str(t or "") for t in texts)

@@ -31,6 +31,7 @@ from . import run_mode as run_modes
 from . import tools, verdicts
 from . import bug
 from . import commit_style
+from . import test_scope
 
 GAP = 8               # uncovered lines closer than this belong to one group (one test can cover them)
 TEST_FILE = checks.TEST_FILE
@@ -790,6 +791,10 @@ def trace_rows(root: str, acs: list[dict], base: str | None = None) -> list[dict
         red = next((sha for sha, s, _b in log if f"test({aid})" in s), None)
         green = next((sha for sha, s, _b in log if f"feat({aid})" in s or f"fix({aid})" in s), None)
         met = ac.get("status") == "already-met"
+        if not red and green and test_scope.is_refactor(ac):
+            # 0.18.58 a refactor has no test commit of its own: the existing tests, run before and after, prove it
+            rows.append({**row, "test": "existing tests", "commit": green[:7], "complete": True})
+            continue
         rows.append({**row, "test": red[:7] if red else None, "commit": green[:7] if green else None,
                      "complete": bool(red) and (bool(green) or met)})
     return rows

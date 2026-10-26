@@ -375,12 +375,44 @@ async def _bug_green(a: ActionInput, bug: dict) -> ActionResult:
 async def verify_green(a: ActionInput) -> ActionResult:
     r = await _verify_green(a)
     if (a.ac or {}).get("id"):
-        return r
+        return _at_its_path(a, r)
     # 0.18.57 a run outside the criteria loop (quick, address, a trivial change, a bug's fix) is kept in data.test_run:
     # the look gate shows what it said (feature_actions.test_run_part)
     cmds = [x[2:].strip() for x in (r.detail or "").splitlines() if x.startswith("$ ")]
     run = {"ok": bool(r.ok), "note": r.note, "commands": cmds[:4], "tail": tail(r.detail or "", 1500)}
     return replace(r, update={**r.update, "data": {**(r.update.get("data") or a.data or {}), "test_run": run}})
+
+
+def _changed(a: ActionInput) -> list[str]:
+    """The files changed in the working tree since the last commit, without keel's own files and without the person's
+    own work from before the flow (a.preexisting, still unchanged)."""
+    out = git.git(a.root, "status", "--porcelain", "--untracked-files=all").stdout
+    files = [line[3:].split(" -> ")[-1].strip('"') for line in out.splitlines() if len(line) > 3]
+    return [f for f in files if f != ".keel" and not f.startswith(".keel/")
+            and not (f in a.preexisting and git.fingerprint(a.root, f) == a.preexisting[f])]
+
+
+def _named_files(a: ActionInput) -> list[str]:
+    """The project files a criterion's title names by path (a folder and an extension)."""
+    title = str((a.ac or {}).get("title") or "")
+    return [f for f in dict.fromkeys(re.findall(r"(?:[\w.-]+/)+[\w.-]+\.\w+", title)) if (Path(a.root) / f).exists()]
+
+
+def _at_its_path(a: ActionInput, r: ActionResult) -> ActionResult:
+    """keel 0.18.58 a criterion that names a file at a path is green only with that file there: an agent that keel's
+    rule blocked put the factory in another folder, and the criterion "tests/Factory/ProductFactory.php exists" was
+    marked done."""
+    if not r.ok or a.fake:
+        return r
+    missing = [f for f in test_scope.must_exist((a.ac or {}).get("title")) if not (Path(a.root) / f).exists()]
+    if not missing:
+        return r
+    ac_id = a.ac["id"]
+    shown = ", ".join(f"`{f}`" for f in missing)
+    return ActionResult(False, f"{ac_id} asks for {shown}, and it is not there.",
+                        f"{ac_id} asks for {shown} at that exact path. A file in another place does not meet the "
+                        f"criterion. If keel's rule blocks the path, do not put the file somewhere else: answer "
+                        f"FROZEN: {missing[0]} and the person decides.\n\n{r.detail}")
 
 
 async def _verify_green(a: ActionInput) -> ActionResult:
@@ -402,6 +434,15 @@ async def _verify_green(a: ActionInput) -> ActionResult:
         whole = await _whole_suite_green(a)
         if not whole.ok:
             return replace(whole, note=f"{ac_id} is a refactor, and the existing tests fail after it: {whole.note}")
+        if git.is_repo(a.root) and not _changed(a):
+            # 0.18.58 e2e: GREEN left the frozen test file alone and changed nothing; "the tests still pass" was taken
+            # as done. A refactor that asks for a change is not done until something changed.
+            named = test_scope.must_exist(a.ac.get("title")) or [f for f in _named_files(a)]
+            how = (f" If keel's rule blocks the file it needs, answer FROZEN: {named[0]} and the person decides."
+                   if named else " If keel's rule blocks the file it needs, answer FROZEN: <file> and the person decides.")
+            return ActionResult(False, f"{ac_id} is a refactor, and nothing changed.",
+                                f"{ac_id} asks for a change, and the working tree has none: the existing tests passing "
+                                f"proves nothing yet.{how}\n\n{whole.detail}")
         return ActionResult(True, f"{ac_id} (refactor): the existing tests pass after the change too.", whole.detail,
                             {**whole.update, "acs": _with_ac_status(a.acs, ac_id, "green")})
     cmd, code, out = await _tests(a)

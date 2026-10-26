@@ -283,7 +283,11 @@ class CodeMixin:
         streak = (data.get("guard_streak") or {}).get(skey) or {}
         texts = [(ac or {}).get("title"), data.get("plan_text"), self.ctx.request,
                  prompts.plan_row(spec_check.read_spec(self.ctx.root, state.get("spec")), ac["id"]) if ac and state.get("spec") else ""]
-        files = [f for f in streak.get("paths") or [] if test_scope.named_in(f, texts)] if streak.get("count", 0) >= 2 else []
+        # 0.18.58 a file the criterion's own title names asks after one round: the agent may move it out of the
+        # rule's way and pass the tests, so a second round may never come
+        title = [(ac or {}).get("title")]
+        files = [f for f in streak.get("paths") or []
+                 if test_scope.named_in(f, texts if streak.get("count", 0) >= 2 else title)] if streak.get("count", 0) >= 1 else []
         said = test_scope.frozen_said(state.get("last_answer"))
         if said:
             cfg = rules.load_config(self.ctx.root)
@@ -696,13 +700,17 @@ class CodeMixin:
         who = (ac or {}).get("id") or step.id
         tries, limit = flow_actions.stuck_tries(state, who), flow_actions.sendback_limit(self.ctx.settings)
         again = f"Approve to try again, {reject}."
-        if set(step.actions()) & HISTORY_CHECKS:
-            # 0.18.57 a check of the branch's commits finds the same thing again unless a commit changes them first
-            again = (f"This check reads the branch's commits: trying again finds the same thing unless the branch "
-                     f"changes first (a new commit, a rebase). Approve to try again after that, {reject}.")
+        history = bool(set(step.actions()) & HISTORY_CHECKS)
+        if history:
+            # 0.18.57 a check of the branch's commits finds the same thing again unless a commit changes them first;
+            # 0.18.58 so "try again" was a dead end (the same gate came back): approve goes on, with a warning
+            again = (f"This check reads the branch's commits: trying again finds the same thing. Approve to go on "
+                     f"without it (the flow ends with a warning), {reject}.")
         question = {"step": step.id, "kind": "fix", "title": f"{step.name} keeps failing",
                     "detail": f"{r.note}\n\n{r.detail[-1500:]}\n\n{again}", "options": _c.OPTIONS}
-        if tries >= limit:
+        if history:
+            question["labels"] = {"approve": "Go on with a warning", "reject": "Skip this item" if in_items else "Stop"}
+        if tries >= limit and not history:
             # 0.18.12 past settings.sendback_limit tries: no "try again", only the way out
             question.update(options=["reject"], labels={"reject": "Skip this item" if in_items else "Stop"},
                             detail=f"{flow_actions.limit_note(tries, limit, who)}\n\n{r.note}\n\n{r.detail[-1500:]}\n\n"
@@ -716,6 +724,12 @@ class CodeMixin:
                         "note": f"{ac['id']} failed: {r.note}"[:300]}, self.nav.end(lp)
             return {**base, "status": "failed", "error": r.note}, END
         retries[key] = 0
+        if history:
+            data = dict(base.get("data") or state.get("data") or {})
+            warning = f"{step.name}: {r.note.rstrip('.')} (the person went on without it)"
+            data["warnings"] = [w for w in data.get("warnings") or [] if w.get("step") != step.id] + \
+                [{"step": step.id, "text": warning}]
+            return {**base, "data": data, "retries": retries, "note": warning[:300]}, self.nav.after(i)
         base.update(flow_actions.stuck_counted({**state, **base}, who, tries + 1))
         why = (answer or {}).get("why")
         if why:
