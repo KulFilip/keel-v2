@@ -12,7 +12,7 @@ import posixpath
 from typing import Any
 
 from . import mcp_ask as ask_mod
-from .mcp_api import q
+from .mcp_api import q, waiting_thread
 from .mcp_server import ApiError, KeelApi, _flow, _n, _project
 
 SECRET_NAMES = {".env", ".npmrc", ".pypirc", ".netrc", "credentials", "credentials.json", "master.key", "secrets.yml", "secrets.yaml",
@@ -215,13 +215,11 @@ def run_action(api: KeelApi, action: str, level: str, args: dict | None = None, 
 
 def waiting_of(api: KeelApi, project: str | None = None, thread_id: str | None = None) -> tuple[dict | None, str]:
     """(what the thread waits for, its thread id), or (None, why there is nothing to answer)."""
-    if thread_id:
-        thread = api.get(f"/threads/{_q(thread_id)}") or {}
-    else:
-        thread, _ = _flow(api, _project(api, project)["id"])
-        thread = thread or {}
-    if thread.get("status") != "waiting" or not thread.get("waiting"):
-        return None, "nothing waits on this project." if not thread_id else f"thread {thread_id} waits for nothing."
+    # 0.18.57 by thread id through the project's flows (the api has no GET /threads/{id}), and a worktree flow or one
+    # started after another is found through the Inbox (mcp_api.waiting_thread)
+    thread, why = waiting_thread(api, project, thread_id)
+    if not thread:
+        return None, why or "nothing waits on this project."
     return thread["waiting"], thread["thread_id"] if thread.get("thread_id") else str(thread_id)
 
 

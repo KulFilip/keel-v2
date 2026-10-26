@@ -40,7 +40,8 @@ from pydantic import BaseModel, Field
 from . import extensions
 from . import mcp_ask as ask_mod
 from .addons import NAME
-from .mcp_api import API_TIMEOUT, MCP_TOKEN_HEADER, ApiError, KeelApi, _clock, _flow, _n, _project, _when, cut, internal_token
+from .mcp_api import (API_TIMEOUT, MCP_TOKEN_HEADER, ApiError, KeelApi, _clock, _flow, _n, _project, _when, cut, internal_token,
+                      waiting_thread)
 from .mcp_levels import (CONFIRM, CONFIRM_ACTIONS, LEVELS, MARKET_TOOLS, RANK, TOOLS, _Names, allowed, level, part_tools,
                          tool_level, write_mode)
 from .mcp_read import (BUCKET_TEXT, BUCKETS, DASHBOARD_VIEWS, GATE_PAGE, ORDER_FROM, STATUS_DETAIL, TIMELINE_FILTERS, _choice_lines,
@@ -164,13 +165,16 @@ def startable(api: KeelApi, project: str | None = None) -> str:
 
 def approve_gate(api: KeelApi, decision: str, project: str | None = None, why: str | None = None,
                  answers: dict[str, str | list[str]] | None = None, choice: str | None = None,
-                 question_id: str | None = None) -> str:
+                 question_id: str | None = None, thread_id: str | None = None) -> str:
     if decision not in ("approve", "reject"):
         raise ApiError("decision must be approve or reject")
-    p = _project(api, project)
-    thread, _ = _flow(api, p["id"])
-    if not thread or thread.get("status") != "waiting" or not thread.get("waiting"):
-        return f"nothing is waiting on {p['id']}: {next_action(api, p['id']).splitlines()[0]}"
+    # 0.18.57 a worktree flow, or one started after another, waits too: by thread_id, or the one the Inbox lists
+    thread, none = waiting_thread(api, project, thread_id)
+    if not thread:
+        if none:
+            return none
+        pid = _project(api, project)["id"]
+        return f"nothing is waiting on {pid}: {next_action(api, pid).splitlines()[0]}"
     w = thread["waiting"]
     if decision not in (w.get("options") or ["approve", "reject"]):
         return f"{w.get('title')} takes only: {', '.join(w.get('options') or [])}"
@@ -626,19 +630,20 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     @reg(rw)
     async def keel_approve_gate(decision: Literal["approve", "reject"], project: str | None = None, why: str | None = None,
                                 answers: dict[str, str | list[str]] | None = None, choice: str | None = None,
-                                ask_person: bool = False, question_id: str | None = None,
+                                ask_person: bool = False, question_id: str | None = None, thread_id: str | None = None,
                                 ctx: Context | None = None) -> str:
-        """Decide the gate the project's flow waits at. approve, or reject (send back) with `why`.
+        """Decide the gate the project's flow waits at (thread_id: that flow, e.g. a worktree flow keel_inbox lists;
+        default the project's flow, or the one flow of the project that waits). approve, or reject (send back) with `why`.
         For questions pass `answers`: question id -> the chosen option label, a list of labels for a "pick any" question,
         or your own words. For a gate with named choices pass `choice` (its name) and `why` when the choice needs a reason.
         An approve of questions without answers (or ask_person) asks the person in a form when this client can show one
         (pick one, tick several, or own words), else gives the questions back as text."""
-        got = await ask_first(ctx, project, None, decision, why, answers, choice, ask_person)
+        got = await ask_first(ctx, project, thread_id, decision, why, answers, choice, ask_person)
         if isinstance(got, str):
             return got
-        decision, why, answers, choice, _, shown = got
+        decision, why, answers, choice, tid, shown = got
         return await act(ctx, "keel_approve_gate", "decide the gate", approve_gate, api, decision, project, why, answers, choice,
-                         question_id=question_id or shown)
+                         question_id=question_id or shown, thread_id=tid or thread_id)
 
     @reg(rw)
     async def keel_resume(decision: Literal["approve", "reject"] | None = None, thread_id: str | None = None,

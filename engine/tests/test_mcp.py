@@ -102,6 +102,7 @@ class StubApi:
         routes = {
             "/api/projects": PROJECTS,
             "/api/projects/shop/flow": {"thread": self.thread, "workflow": {"id": "feature", "name": "Feature"}},
+            "/api/projects/shop/flows/t-1": {"thread": self.thread, "workflow": {"id": "feature", "name": "Feature"}},
             "/api/projects/blog/flow": {"thread": None, "workflow": None},
             "/api/threads/t-1/history": HISTORY,
             "/api/jobs": JOBS,

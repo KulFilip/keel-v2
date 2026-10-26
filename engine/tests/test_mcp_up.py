@@ -72,7 +72,7 @@ class Api(StubApi):
             self.posts.append((path, body))
             self.focus = {**self.focus, "project": body.get("project") or self.focus["project"], "by": body.get("by")}
             return httpx.Response(200, json=self.focus)
-        routes = {"/api/threads/t-1": self.thread, "/api/projects/shop/runs": [], "/api/projects/shop/workflows": WORKFLOWS,
+        routes = {"/api/projects/shop/runs": [], "/api/projects/shop/workflows": WORKFLOWS,
                   "/api/ui/focus": self.focus, "/api/projects/shop/flows/t-1": {"thread": self.thread}}
         if req.method == "GET" and path in routes:
             return httpx.Response(200, json=routes[path])
