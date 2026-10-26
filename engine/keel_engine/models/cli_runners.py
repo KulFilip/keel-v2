@@ -480,6 +480,11 @@ class ClaudeCLIRunner:
         # a Helper Fix turn's hook may wait for the person's OK on a command (runtime/permissions.py)
         hook_timeout = permissions.HOOK_TIMEOUT if getattr(req.toolbox, "ask", None) else 10
         argv += ["--settings", guard_ctx.claude_settings(Path(scratch) / "keel-guard.json", hook_timeout)]
+        # 0.18.57 only keel's own config home (CLAUDE_CONFIG_DIR, the "user" source): never the project folder's
+        # .claude/settings.json or settings.local.json, which are the person's own Claude Code setup (enabledPlugins,
+        # hooks, permissions) along with .claude/skills, agents and commands. keel gives agents the repo's rules and
+        # skills itself (project_rules, Settings › repo skills), so a host plugin's or skill's name never reaches them.
+        argv += ["--setting-sources", "user"]
         stream = ClaudeStream(emit, req.root)
         # MCP_CONNECTION_NONBLOCKING=0: claude -p waits for the MCP servers before the first model call (2.1 connects
         # them in the background), so a tool keel's prompt names (db_query, git_status, ...) is there from the start.

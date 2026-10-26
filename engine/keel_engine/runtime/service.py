@@ -218,6 +218,7 @@ class Engine:
             if status not in ("stopped", "failed"):
                 status = "done"
             await self._set_status(tid, status, snap.values.get("error"))
+            await self._end_worktree_containers(tid, ctx)
             await self._hunt_link(ctx, snap.values, status)
             if status == "failed":
                 ctx.emit("thread.failed", data={"error": snap.values.get("error"), "status": status})
@@ -231,13 +232,36 @@ class Engine:
         except asyncio.CancelledError:
             if not self._closing:      # a user's Stop (or a rewind); a shutdown keeps the row 'running'
                 await self._set_status(tid, "stopped")
+                await self._end_worktree_containers(tid, ctx)
             raise
         except Exception as exc:
             log.exception("thread %s failed", tid)
             await self._set_status(tid, "failed", f"{type(exc).__name__}: {exc}"[:1000])
+            await self._end_worktree_containers(tid, ctx)
             ctx.emit("thread.failed", data={"error": f"{type(exc).__name__}: {exc}"[:1000]})
         finally:
             ctx.resume_qid = None        # the answer it carried was used (or the run ended without it)
+
+    async def _end_worktree_containers(self, tid: str, ctx: ThreadContext):
+        """0.18.57 a flow that ends in a worktree takes the containers docker compose made there with it (an agent's
+        `docker compose run` and its dependencies; they stayed running after the flow). Not while another flow of this
+        engine still runs or waits in the same worktree. Never fails the flow."""
+        from . import container
+
+        if not rules.in_keel_worktree(ctx.root):
+            return
+        try:
+            async with self.conn.execute("select count(*) from keel_threads where root = ? and thread_id != ? "
+                                         "and status in ('running', 'waiting')", (ctx.root, tid)) as cur:
+                (others,) = await cur.fetchone()
+            if others:
+                return
+            removed = await asyncio.to_thread(container.cleanup_worktree, ctx.root)
+            if removed:
+                log.info("thread %s: removed %d container(s) made in its worktree %s", tid, len(removed), ctx.root)
+                ctx.emit("worktree.containers_removed", data={"worktree": ctx.root, "containers": removed})
+        except Exception:      # noqa: BLE001
+            log.warning("thread %s: could not clean up its worktree's containers", tid, exc_info=True)
 
     @staticmethod
     def _at_pause(ctx: ThreadContext, snap) -> dict:
