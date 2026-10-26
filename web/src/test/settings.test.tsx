@@ -69,14 +69,14 @@ describe("Settings: the tabs and their links", () => {
       { page: "settings", arg: "connections" },
       "#/settings/connections",
     ],
-    ["#/settings/plugins", { page: "settings", arg: "plugins" }, "#/settings/plugins"],
+    ["#/plugins", { page: "settings", arg: "plugins" }, "#/settings/plugins"],
     [
-      "#/settings/plugins/git?at=projects",
+      "#/plugins/git?at=projects",
       { page: "settings", arg: "plugins/git", query: "at=projects" },
       "#/settings/plugins/git?at=projects",
     ],
     [
-      "#/settings/plugins?tab=market&kind=skills",
+      "#/plugins?tab=market&kind=skills",
       { page: "settings", arg: "plugins", query: "tab=market&kind=skills" },
       "#/settings/plugins?tab=market&kind=skills",
     ],

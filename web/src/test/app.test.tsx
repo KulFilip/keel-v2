@@ -11,9 +11,11 @@ describe("navigation and project switching", () => {
     await screen.findByRole("button", { name: /^Project: ludus-engine/ });
     const n = within(nav());
     for (const g of ["Run", "Project", "Build", "Control"]) expect(n.getAllByText(g).length).toBeGreaterThan(0);
-    for (const l of ["Flow", "Live agents", "Jobs", "Code", "Map", "Graph", "Wiki", "Workflows", "Agents", "Skill hub", "Stacks", "Tools (MCP)", "Budget", "Settings", "Connections"]) {
+    for (const l of ["Flow", "Live agents", "Jobs", "Code", "Map", "Graph", "Wiki", "Workflows", "Agents", "Skill hub", "Stacks", "Tools (MCP)", "Settings"]) {
       expect(n.getByRole("link", { name: new RegExp(`^${l.replace(/[()]/g, "\\$&")}`) })).toBeInTheDocument();
     }
+    // keel 0.18.57 Control has one entry: Budget, Connections, Databases and Plugins are Settings tabs
+    for (const l of ["Budget", "Connections", "Databases", "Plugins"]) expect(n.queryByRole("link", { name: new RegExp(`^${l}`) })).toBeNull();
     expect(screen.getByRole("link", { name: /All projects/ })).toHaveTextContent("◆ 1");
   });
 
