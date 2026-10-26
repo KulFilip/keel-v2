@@ -2,10 +2,11 @@
 // checked again), Threads (reply, resolve) and the Checklist (the reviewer's steps). keel never posts: a finding becomes
 // a pending comment only when you press Add as comment.
 
-import { useEffect, useState } from "react";
-import { errorParts, ErrorBox, Markdown, Pill, type PillTone } from "@keel/web-sdk";
-import { DatabaseTab, SystemTab } from "./Diagrams";
-import { reviewApi, type AiState, type Diagrams, type Finding, type ReviewView } from "./reviewApi";
+import { useState } from "react";
+import { ErrorBox, Markdown, Pill, type PillTone } from "@keel/web-sdk";
+import { DiagramPart } from "./Diagrams";
+import { useDiagrams } from "./diagramStore";
+import { type AiState, type Finding, type ReviewView } from "./reviewApi";
 
 export type PanelTab = "changes" | "pending" | "commits" | "overview" | "findings" | "threads" | "checklist";
 
@@ -68,30 +69,6 @@ function Running({
 
 type OverviewPart = "overview" | "database" | "system";
 
-/** keel 0.18.57 the overview's diagrams, read from git (no model), loaded again when the head commit moves. */
-function useDiagrams(pid: string | undefined, key: string, head: string) {
-  const [state, setState] = useState<{ d: Diagrams | null; error: { message: string; hint?: string } | null; loading: boolean }>(
-    { d: null, error: null, loading: !!pid });
-  const [again, setAgain] = useState(0);
-  useEffect(() => {
-    if (!pid) return;
-    let live = true;
-    setState((s) => ({ ...s, loading: true, error: null }));
-    reviewApi
-      .diagrams(pid, key, again > 0)
-      .then((d) => live && setState({ d, error: null, loading: false }))
-      .catch((e: unknown) => {
-        if (!live) return;
-        const p = errorParts(e);
-        setState({ d: null, error: { message: p.message, hint: p.hint ?? undefined }, loading: false });
-      });
-    return () => {
-      live = false;
-    };
-  }, [pid, key, head, again]);
-  return { ...state, reload: () => setAgain((n) => n + 1) };
-}
-
 export function OverviewTab({
   pid,
   view,
@@ -112,7 +89,7 @@ export function OverviewTab({
 }) {
   const [part, setPart] = useState<OverviewPart>("overview");
   const dg = useDiagrams(pid, view.key, view.head_sha);
-  const db = dg.d?.database;
+  const db = dg?.status === "done" ? dg.d.database : null;
   const parts: [OverviewPart, string, number | null][] = [["overview", "Overview", null]];
   if (db?.shown) parts.push(["database", "Database", db.count]);
   if (pid) parts.push(["system", "System", null]);
@@ -135,15 +112,7 @@ export function OverviewTab({
       )}
       {shown !== "overview" && (
         <div role="tabpanel" id={`rv-ov-panel-${shown}`} aria-labelledby={`rv-ov-${shown}`}>
-          {dg.error ? (
-            <ErrorBox error={dg.error} onRetry={dg.reload} />
-          ) : dg.loading || !dg.d ? (
-            <div className="rv-dim pg-spin" role="status">keel reads the change…</div>
-          ) : shown === "database" && db ? (
-            <DatabaseTab db={db} files={files} onOpen={onOpen} />
-          ) : (
-            <SystemTab sys={dg.d.system} />
-          )}
+          {pid && <DiagramPart pid={pid} reviewKey={view.key} view={view} part={shown} onOpen={onOpen} />}
         </div>
       )}
       {shown === "overview" && (

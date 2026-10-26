@@ -7,13 +7,15 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   copyText,
+  ErrorBox,
   pageIsDark,
   Pill,
   renderMermaid,
   useNarrow,
   type PillTone,
 } from "@keel/web-sdk";
-import type { DatabaseDiagram, DbTable, SystemDiagram } from "./reviewApi";
+import { reloadDiagrams, useDiagrams } from "./diagramStore";
+import type { DatabaseDiagram, DbTable, ReviewView, SystemDiagram } from "./reviewApi";
 
 type Mode = "diagram" | "text" | "list";
 
@@ -621,4 +623,25 @@ export function SystemTab({ sys }: { sys: SystemDiagram }) {
       )}
     </div>
   );
+}
+
+/**
+ * The Database or System part for one review, from the shared load (diagramStore.ts): a wait, the error with Try
+ * again, or the tab. The classic overview and the new Review view's tabs both show it.
+ */
+export function DiagramPart({ pid, reviewKey, view, part, onOpen }: {
+  pid: string;
+  reviewKey: string;
+  view: ReviewView;
+  part: "database" | "system";
+  onOpen: (path: string, line?: number | null) => void;
+}) {
+  const e = useDiagrams(pid, reviewKey, view.head_sha);
+  if (!e || e.status === "loading")
+    return <div className="rv-dim pg-spin" role="status">keel reads the change…</div>;
+  if (e.status === "error")
+    return <ErrorBox error={e.error} onRetry={() => reloadDiagrams(pid, reviewKey, view.head_sha)} />;
+  if (part === "database" && e.d.database.shown)
+    return <DatabaseTab db={e.d.database} files={new Set(view.files.map((f) => f.path))} onOpen={onOpen} />;
+  return <SystemTab sys={e.d.system} />;
 }

@@ -5,11 +5,15 @@
 
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { server } from "../../../../web/src/test/setup";
 import type { Diagrams, ReviewView } from "../reviewApi";
 
+import { act } from "@testing-library/react";
 import { draw } from "../Diagrams";
+import { clearDiagrams } from "../diagramStore";
+import { useReviewTabs, type ReviewTabProps } from "../next/tabs";
 import { OverviewTab } from "../ReviewPanel";
 
 // jsdom cannot lay out an SVG, so keel's Mermaid renderer and the clipboard are stand-ins here
@@ -100,6 +104,7 @@ function show(onOpen = vi.fn()) {
 
 describe("the overview's Database and System tabs", () => {
   beforeEach(() => {
+    clearDiagrams();
     calls = [];
     sdk.copied = [];
     sdk.render.mockReset();
@@ -200,5 +205,72 @@ describe("the overview's Database and System tabs", () => {
     expect(calls).toEqual(["?key=pr%3A7", "?key=pr%3A7&refresh=true"]);
     fireEvent.click(screen.getByRole("tab", { name: "keel's overview" }));
     expect(screen.getByRole("button", { name: "Explain this change" })).toBeInTheDocument();
+  });
+});
+
+// the new Review view: the same parts as tabs of its pull request (next/tabs.ts), registered by the plugin's setup()
+function TabRow({ ctx }: { ctx: ReviewTabProps }) {
+  const tabs = useReviewTabs()
+    .filter((t) => t.id.startsWith("keel-"))
+    .filter((t) => !t.show || t.show(ctx))
+    .sort((a, b) => (a.order ?? 60) - (b.order ?? 60));
+  const [open, setOpen] = useState<string | null>(null);
+  const Open = tabs.find((t) => t.id === open)?.component;
+  return (
+    <div>
+      <div role="tablist" aria-label="Pull request">
+        {tabs.map((t) => (
+          <button key={t.id} type="button" role="tab" onClick={() => setOpen(t.id)}>
+            {t.label}
+            {t.count?.(ctx) ?? ""}
+          </button>
+        ))}
+      </div>
+      {Open && <Open {...ctx} />}
+    </div>
+  );
+}
+
+describe("the new Review view's Database and System tabs", () => {
+  beforeEach(() => {
+    clearDiagrams();
+    calls = [];
+    sdk.render.mockReset();
+    sdk.render.mockResolvedValue(SVG);
+    draw.mermaid = (t, o) => sdk.render(t, o);
+  });
+  afterEach(() => Object.assign(draw, real));
+
+  const ctx = (onOpenFile = vi.fn()): ReviewTabProps => ({ pid: "shop", reviewKey: "pr:7", view: VIEW, ai: null, onOpenFile });
+
+  it("show only once the api gave their data, Database with its count, and open the same parts", async () => {
+    serve(diagrams(true));
+    const onOpenFile = vi.fn();
+    render(<TabRow ctx={ctx(onOpenFile)} />);
+    const row = screen.getByRole("tablist", { name: "Pull request" });
+    expect(within(row).queryAllByRole("tab")).toEqual([]);              // nothing until the diagrams are read
+    await waitFor(() => expect(within(row).getAllByRole("tab").map((t) => t.textContent)).toEqual(["Database3", "System"]));
+    expect(calls).toEqual(["?key=pr%3A7"]);                              // one load for both tabs
+    fireEvent.click(within(row).getByRole("tab", { name: "Database3" }));
+    expect(await screen.findByRole("img", { name: "Database change diagram" })).toBeInTheDocument();
+    const risk = screen.getByText(/added NOT NULL without a default/).closest("li")!;
+    fireEvent.click(within(risk).getByRole("button", { name: "db/migration/V2__refunds.sql:8" }));
+    expect(onOpenFile).toHaveBeenCalledWith("db/migration/V2__refunds.sql", 8);
+    fireEvent.click(within(row).getByRole("tab", { name: "System" }));
+    expect(await screen.findByRole("img", { name: "System diagram" })).toBeInTheDocument();
+    expect(calls.length).toBe(1);
+  });
+
+  it("no database change: only System; a failed load: no tab", async () => {
+    serve(diagrams(false));
+    const { unmount } = render(<TabRow ctx={ctx()} />);
+    await waitFor(() => expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["System"]));
+    unmount();
+    act(() => clearDiagrams());
+    serve(null);
+    render(<TabRow ctx={ctx()} />);
+    await waitFor(() => expect(calls.length).toBe(2));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryAllByRole("tab")).toEqual([]);
   });
 });

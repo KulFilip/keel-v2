@@ -311,3 +311,5 @@
 .rv-migs > li > .rv-list { margin-top: 2px; }
 .rv-stack > *, .rv-dgm > * { min-width: 0; }
 .rv-tlist, .rv-risks, .rv-migs, .rv-dgm-list { overflow-wrap: anywhere; }
+/* the same parts as a tab of the new Review view's pull request */
+.rv-next-part { padding: 10px 14px; min-width: 0; }
