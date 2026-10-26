@@ -43,6 +43,8 @@ class EventHub(private val mapper: ObjectMapper) {
 
     /** Sends to subscribers of [project] and to subscribers of every project. */
     fun publish(project: String?, type: String, data: Any?) {
+        // no open tab or terminal: nothing to write (live text arrives every 80 ms per agent, up to 20k characters each)
+        if (subs.isEmpty()) return
         val json = mapper.writeValueAsString(data)
         for (sub in subs) {
             val otherProject = sub.project != null && project != null && sub.project != project

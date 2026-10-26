@@ -88,9 +88,13 @@ class EngineClient(private val props: KeelProperties, private val mapper: Object
         fast.delete().uri(path, vars.mapValues { it.value ?: "" }).retrieve().body(JsonNode::class.java) ?: mapper.nullNode()
     }
 
+    /** Docker's healthcheck asks /api/health every 15 s: one client for it, not a new JDK HttpClient (and its selector
+     *  thread) per call, which piled up dozens of idle threads between garbage collections. */
+    private val probe by lazy { client(Duration.ofSeconds(2)) }
+
     /** True when GET /health answers within a short time. */
     fun health(): JsonNode? = try {
-        client(Duration.ofSeconds(2)).get().uri("/health").retrieve().body(JsonNode::class.java)
+        probe.get().uri("/health").retrieve().body(JsonNode::class.java)
     } catch (e: Exception) {
         null
     }
