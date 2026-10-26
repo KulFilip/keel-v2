@@ -129,7 +129,11 @@ def test_the_merge_step_dedupes_findings_across_reviewers():
                        "F | blocking | e.php:36-50 | z | w\nCHECK | unverified | the config is not in the repo")
     assert p["read"] == ["a.php", "b.php", "c.php"] and p["gaps"] == [{"file": "d.php", "why": "cut off"}]
     assert p["findings"][0]["file"] == "a.php" and p["findings"][1]["line"] == 36   # a problem on an item line is kept
-    assert p["checks"] == [{"verdict": "unverified", "why": "the config is not in the repo"}]
+    assert p["checks"] == [{"id": None, "verdict": "unverified", "why": "the config is not in the repo"}]
+    batch = ta.parse_lines("CHECK | c2 | unproven | outside the repo | needs:the broker setting\n"
+                           "CHECK | c3 | confirmed | V1.php:24 sets the default | sev:blocking | conf:high | evidence:m/V1.php:24")
+    assert batch["checks"][0] == {"id": "c2", "verdict": "unverified", "why": "outside the repo", "needs": "the broker setting"}
+    assert batch["checks"][1]["sev"] == "blocking" and batch["checks"][1]["evidence"] == "m/V1.php:24"
 
 
 def test_the_low_coverage_warning():
@@ -158,9 +162,11 @@ def test_claims_marks_a_partial_review_and_settles_undecided_items():
     assert review["partial"] is True and review["coverage"]["unread"] == ["b.php", "c.php"]
     assert review["coverage"]["gaps"] == {"c.php": "ran out of turns"}
     assert "read 1 of 3 file(s)" in r.note
-    checks = r.update["data"]["ticket_checks"]
-    assert [(c["job"], c["target"]) for c in checks] == [("settle", "T1")]   # nobody judged T1: read the code, not "by hand"
-    assert checks[0]["files"] == ["a.php"] and "CHECK | met" in checks[0]["answer"]
+    settles = r.update["data"]["ticket_settles"]
+    assert [(c["job"], c["target"]) for c in settles] == [("settle", "T1")]  # nobody judged T1: read the code, not "by hand"
+    assert settles[0]["files"] == ["a.php"] and "CHECK | met" in settles[0]["answer"]
+    checks = r.update["data"]["ticket_checks"]                             # the minor finding is verified too
+    assert len(checks) == 1 and [c["severity"] for c in checks[0]["claims"]] == ["minor"]
 
 
 def test_a_review_that_read_nothing_stops_instead_of_saying_done():
@@ -183,26 +189,43 @@ def test_a_review_that_read_nothing_stops_instead_of_saying_done():
 def test_the_verifier_settles_items_and_marks_what_it_could_not_read():
     review = {"items": [{"id": "T1", "from": "ticket", "text": "old rows are not handed over again"},
                         {"id": "T2", "from": "ticket", "text": "an event is stored once"},
-                        {"id": "T3", "from": "ticket", "text": "terminal states never change"}],
-              "judged": {"T2": {"id": "T2", "verdict": "unclear", "evidence": "did not read the migration"}},
-              "findings": [{"severity": "blocking", "file": "x.php", "line": 3, "text": "retries forever"}],
+                        {"id": "T3", "from": "ticket", "text": "terminal states never change"},
+                        {"id": "T4", "from": "ticket", "text": "a bad message does not stop the batch"}],
+              "judged": {"T2": {"id": "T2", "verdict": "unclear", "evidence": "did not read the migration"},
+                         "T4": {"id": "T4", "verdict": "not-met", "evidence": "Publisher.php:40 throws in the loop"}},
+              "findings": [{"severity": "blocking", "file": "x.php", "line": 3, "text": "retries forever"},
+                           {"severity": "minor", "file": "y.php", "line": 9, "text": "sort goes into the SQL"},
+                           {"severity": "minor", "file": "z.php", "line": 2, "text": "time zone dropped"},
+                           {"severity": "blocking", "file": "Publisher.php", "line": 40, "text": "one throw stops the loop"}],
+              "claims": [{"id": "c1", "targets": [["finding", 0]]}, {"id": "c2", "targets": [["finding", 1]]},
+                         {"id": "c3", "targets": [["item", "T4"], ["finding", 3]]}, {"id": "c4", "targets": [["finding", 2]]}],
               "reviewable": ["x.php"], "coverage": {"files": 1, "read": 1, "unread": [], "known": True},
               "source": {"branch": "feat/x", "base": "main"}, "title": "t"}
-    checks = [{"id": "check-1", "kind": "finding", "target": 0}, {"id": "check-2", "kind": "settle", "target": "T1"},
-              {"id": "check-3", "kind": "settle", "target": "T2"}, {"id": "check-4", "kind": "settle", "target": "T3"}]
-    results = [{"item": "check-1", "text": "CHECK | unverified | the handler is generated at build time"},
-               {"item": "check-2", "text": "CHECK | not-met | m/V1.php:24 | the default gives old rows label_generated"},
-               {"item": "check-3", "text": "CHECK | met | m/V2.php:54 | a UNIQUE index"},
-               {"item": "check-4", "text": "CHECK | unverified | the status SQL lives in a stored procedure"}]
+    checks = [{"id": "check-1", "claims": [{"id": "c1"}, {"id": "c2"}, {"id": "c3"}, {"id": "c4"}]}]
+    settles = [{"id": "settle-1", "target": "T1"}, {"id": "settle-2", "target": "T2"}, {"id": "settle-3", "target": "T3"}]
+    check_results = [{"item": "check-1", "text": "CHECK | c1 | unproven | the handler is generated | needs:the build output\n"
+                                                 "CHECK | c2 | rejected | sort goes through an allow-list at Repo.php:77\n"
+                                                 "CHECK | c3 | confirmed | Publisher.php:40 has no catch | sev:blocking"}]
+    settle_results = [{"item": "settle-1", "text": "CHECK | not-met | m/V1.php:24 | the default gives old rows label_generated"},
+                      {"item": "settle-2", "text": "CHECK | met | m/V2.php:54 | a UNIQUE index"},
+                      {"item": "settle-3", "text": "CHECK | unverified | the status SQL lives in a stored procedure"}]
     a = ActionInput(root="/tmp", phase="review", title="t", ac=None, acs=[], fake=True, flow="review-pr",
-                    data={"ticket_review": review, "ticket_checks": checks, "check_results": results})
+                    data={"ticket_review": review, "ticket_checks": checks, "check_results": check_results,
+                          "ticket_settles": settles, "settle_results": settle_results})
     r = ta._record(a)
-    out = {it["id"]: it for it in r.update["data"]["ticket_review"]["items"]}
-    assert out["T1"]["verdict"] == "not-met" and "settled by reading the code" in out["T1"]["evidence"]
-    assert out["T2"]["verdict"] == "met"
-    assert out["T3"]["verdict"] == "unclear" and out["T3"]["evidence"].startswith("unverified:")
+    out = r.update["data"]["ticket_review"]
+    items = {it["id"]: it for it in out["items"]}
+    assert items["T1"]["verdict"] == "not-met" and "settled by reading the code" in items["T1"]["evidence"]
+    assert items["T2"]["verdict"] == "met"
+    assert items["T3"]["verdict"] == "unclear" and items["T3"]["evidence"].startswith("unverified:")
+    assert items["T4"]["verdict"] == "not-met"                            # the shared claim confirmed both
+    assert [f["text"] for f in out["findings"]] == ["one throw stops the loop"]   # only what was confirmed
+    assert [f["text"] for f in out["dropped"]] == ["sort goes into the SQL"]
+    assert {f["text"]: f["why"] for f in out["not_checked"]} == {
+        "retries forever": "unproven: the build output", "time zone dropped": "the second look gave no answer"}
     text = r.update["show"]
-    assert "retries forever (unverified: the handler is generated at build time)" in text   # kept, and said so
+    assert "NOT CHECKED" in text and "retries forever" in text.split("NOT CHECKED", 1)[1]
+    assert "retries forever" not in text.split("NOT CHECKED", 1)[0]       # never shown as a finding
     assert "no reviewer gave a verdict" not in text
 
 
@@ -294,3 +317,36 @@ def test_an_env_reference_is_not_a_secret():
     assert checks.scan_secrets("        $secret: '%env(CARRIER_WEBHOOK_SECRET)%'") == []
     assert checks.scan_secrets("API_TOKEN=${API_TOKEN_FROM_VAULT}") == []
     assert checks.scan_secrets("password = 'q8Zr2LkVx9PwT4mN'")                 # a literal still is
+
+
+def test_claims_over_the_cap_are_listed_as_not_checked_never_as_findings():
+    text = "READ | a.php\n" + "\n".join(f"F | minor | a.php:{n * 20} | problem number {n} in branch{n} | fix {n}"
+                                        for n in range(1, ta.MAX_CHECKS + 6))
+    r = ta._claims(_claims_input([{"item": "bugs-1", "text": text, "usage": {"tokens_in": 300_000}}], files=("a.php",)))
+    data = r.update["data"]
+    assert sum(len(j["claims"]) for j in data["ticket_checks"]) == ta.MAX_CHECKS
+    assert len(data["ticket_checks"]) == ta.MAX_CHECK_JOBS and all(len(j["claims"]) <= ta.CHECK_BATCH for j in data["ticket_checks"])
+    review = data["ticket_review"]
+    assert len(review["unchecked"]) == 5
+    review["source"].update(branch="feat/x", base="main")
+    rec = ta._record(ActionInput(root="/tmp", phase="review", title="t", ac=None, acs=[], fake=True, flow="review-pr",
+                                 data={**data, "check_results": [], "settle_results": []}))
+    out = rec.update["data"]["ticket_review"]
+    assert out["findings"] == [] and len(out["not_checked"]) == ta.MAX_CHECKS + 5   # nobody answered: none is a finding
+    assert out["verdict"] == "unclear"                                            # and it is not "done" either
+
+
+def test_a_review_leaves_the_persons_folder_exactly_as_it_was(client, repo, monkeypatch):
+    _big_branch(repo)
+    git(repo, "checkout", "-q", "-b", "feat/my-work")
+    (repo / "wip.txt").write_text("not committed\n")                    # the person's own work in progress
+
+    def snapshot():
+        return [git(repo, *args).stdout for args in (("rev-parse", "--abbrev-ref", "HEAD"), ("rev-parse", "HEAD"),
+                                                     ("status", "--porcelain"), ("branch", "--list"),
+                                                     ("worktree", "list", "--porcelain"))]
+    before = snapshot()
+    answers(monkeypatch, {})
+    s = wait(client, start(client, repo, workflow="review-pr", title="Review", request="branch: feat/dispatch\n" + TICKET))
+    assert s["waiting"]["step"] == "share", s
+    assert snapshot() == before                                           # HEAD, branch, files, branches, worktrees

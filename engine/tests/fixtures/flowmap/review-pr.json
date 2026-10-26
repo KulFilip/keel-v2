@@ -41,14 +41,27 @@
    "id": "check",
    "kind": "parallel",
    "name": "check each problem again",
-   "agent": "pr-reviewer",
+   "agent": "finding-verifier",
    "model": "default",
    "phase": "review",
    "from": "ticket_checks",
    "markers": [
     "TICKET-REVIEW"
    ],
-   "instructions": "Your item holds one claim another reviewer made (job check), or one checklist item nobody could decide (job settle). Read the code in the reviewed version: the lines it names, and what they call. A check answers CHECK | confirmed | <why> or CHECK | rejected | <why>; a settle answers CHECK | met | <file:line, why> or CHECK | not-met | <file:line, why>. Only when the code that decides it cannot be read: CHECK | unverified | <what you could not read>. Never leave it as a question for the person."
+   "instructions": "Your item holds a few claims other reviewers made (findings and not-met checklist items; one claim may stand for both). For each, restate it as trigger -> effect, then read the reviewed version: the lines it names and the one place that would make it false (a caller, the migration, the config reader, the consumer). Answer one line per claim: CHECK | <id> | confirmed, rejected or unproven | why | sev: | conf: | evidence: | needs:. unproven is kept and shown as not checked; never guess confirmed."
+  },
+  {
+   "id": "settle",
+   "kind": "parallel",
+   "name": "settle what nobody decided",
+   "agent": "pr-reviewer",
+   "model": "default",
+   "phase": "review",
+   "from": "ticket_settles",
+   "markers": [
+    "TICKET-REVIEW"
+   ],
+   "instructions": "Your item holds one checklist item nobody could decide (job settle). Read the code it needs in the reviewed version and answer CHECK | met | <file:line, why> or CHECK | not-met | <file:line, why>. Only when the code that decides it cannot be read: CHECK | unverified | <what you could not read>. Never leave it as a question for the person."
   },
   {
    "id": "record",
@@ -99,6 +112,7 @@
    "reviewers",
    "claims",
    "check",
+   "settle",
    "record",
    "share",
    "share_text",
@@ -128,6 +142,10 @@
      },
      {
       "step": "check",
+      "side": []
+     },
+     {
+      "step": "settle",
       "side": []
      },
      {

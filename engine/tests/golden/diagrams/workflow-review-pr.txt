@@ -1,4 +1,4 @@
-workflow review-pr "review a PR (keel)" - 10 steps, 2 gates
+workflow review-pr "review a PR (keel)" - 11 steps, 2 gates
 
 == Review: a read-only review ==  id=review
    #  prepare the review  (code ticket_prep)
@@ -6,6 +6,7 @@ workflow review-pr "review a PR (keel)" - 10 steps, 2 gates
    =  one reviewer per job  (parallel)
    #  claims to check  (code ticket_claims)
    =  check each problem again  (parallel)
+   =  settle what nobody decided  (parallel)
    #  record the review  (code ticket_record)
   [?] the review  (gate, you decide)
         done -> end of the flow
