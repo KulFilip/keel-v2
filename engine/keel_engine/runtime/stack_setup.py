@@ -763,13 +763,26 @@ def implied_missing(folder: Path, stack: dict) -> str | None:
 def worktree_jobs(root: str) -> list[dict]:
     """[{stack, dir, commands, why}]: each stack with setup.each_worktree that has work in this folder now: a new worktree
     not set up yet (with these commands), or a folder that lacks what its dependency_files imply."""
+    from . import container
+
     out = []
     wt = None
     rec = None
     seen: set[tuple] = set()
+    configured = container._commands(root)
+    boxed = container.in_container(root)
     for d in stacks.matched(root):
         cmds = block(d)["each_worktree"]
         if not cmds:
+            continue
+        # 0.18.57 the project's own dependency command wins over the stack's bare one (`composer install` on keel's
+        # side when PHP lives only in the project's container): commands.deps_api / deps_web for the stack's lane
+        own = str(configured.get("deps_web" if d.get("lane") == "web" else "deps_api") or "").strip()
+        if own:
+            cmds = [own]
+        elif boxed:
+            log.info("stack %s: its each_worktree is not run, the project's commands run in a container and "
+                     "commands.deps_%s is not set", d["name"], "web" if d.get("lane") == "web" else "api")
             continue
         if needs_approval(d) and not is_approved(approval_key(project_id(root), d["name"], block(d))):
             continue                # a repo's own commands wait for a person (held(), the Inbox card)
