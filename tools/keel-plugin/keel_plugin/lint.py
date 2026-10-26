@@ -37,7 +37,7 @@ KEEL_WORKFLOWS = frozenset({"address", "change", "clarify", "cover", "diagnose",
 # one still runs keel's agent, and a plugin cannot bring an agent with one.
 KEEL_RENAMED_AGENTS = frozenset({"ac-reviewer", "code-reviewer", "reviewer", "ticket-reviewer"})
 KEEL_AGENTS = frozenset({"arch-surveyor", "branch-reviewer", "bulk-reader", "contract-author", "criterion-reviewer",
-                         "dependency-triager", "e2e-author", "explorer", "hunter", "implementer", "investigator",
+                         "dependency-triager", "e2e-author", "explorer", "finding-verifier", "hunter", "implementer", "investigator",
                          "lane-runner", "lens-reviewer", "librarian", "pr-reviewer", "prover", "reproducer",
                          "security-auditor", "setup-doctor", "test-author", "web-researcher"}) | KEEL_RENAMED_AGENTS
 FRONT_NAME = re.compile(r"^name:\s*['\"]?([^'\"\s#]+)", re.M)
