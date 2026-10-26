@@ -126,6 +126,27 @@ def test_quick_runs_every_module_suite_not_only_the_backend(tmp_path):
     assert r.ok and "api 3 passed" in r.detail and "web 2 passed" in r.detail, r.detail
 
 
+def test_the_quick_look_shows_what_the_test_run_said(client, repo, monkeypatch, tmp_path):
+    """0.18.57 real use: quick's look gate showed the diff and no test result. It shows the run before the diff: the
+    command, pass or FAIL, and the last lines of its output."""
+    import asyncio
+    import subprocess
+    answers(monkeypatch, {})
+    tid = start(client, repo, workflow="quick", title="Fix the owner page title")
+    d = wait(client, tid)["waiting"]["detail"]
+    assert "## Tests\n\n**Tests: pass** — the suite: green (simulated)." in d and d.index("## Tests") < d.index("## Diff")
+    root = tmp_path / "p"
+    (root / ".keel").mkdir(parents=True)
+    (root / ".keel/config.yml").write_text("commands:\n  api_test_module: \"echo collected 3 && echo shop 3 passed\"\n")
+    subprocess.run(["git", "init", "-q"], cwd=root)
+    a = actions_mod.ActionInput(root=str(root), phase="ac", title="t", ac=None, acs=[], fake=False, flow="quick")
+    r = asyncio.run(actions_mod.verify_green(a))
+    a.data, a.state = r.update["data"], {"show": "## Diff\n\nthe diff"}
+    show = actions_mod.feature_actions.test_check(a).update["show"]
+    assert "**Tests: pass** — the suite: green." in show and "Command: `echo collected 3 && echo shop 3 passed`" in show
+    assert "```text\ncollected 3\nshop 3 passed\n```" in show and show.index("## Tests") < show.index("## Diff")
+
+
 PLAN_WITHOUT_AC_LINES = ("Plan:\n- add a visits count to the pet list response\n- show it on the pets page\n\n"
                          "Acceptance criteria:\n1. The pet list returns each pet's visit count.\n"
                          "2. The pets page shows the count next to the name.")

@@ -373,6 +373,17 @@ async def _bug_green(a: ActionInput, bug: dict) -> ActionResult:
 
 
 async def verify_green(a: ActionInput) -> ActionResult:
+    r = await _verify_green(a)
+    if (a.ac or {}).get("id"):
+        return r
+    # 0.18.57 a run outside the criteria loop (quick, address, a trivial change, a bug's fix) is kept in data.test_run:
+    # the look gate shows what it said (feature_actions.test_run_part)
+    cmds = [x[2:].strip() for x in (r.detail or "").splitlines() if x.startswith("$ ")]
+    run = {"ok": bool(r.ok), "note": r.note, "commands": cmds[:4], "tail": tail(r.detail or "", 1500)}
+    return replace(r, update={**r.update, "data": {**(r.update.get("data") or a.data or {}), "test_run": run}})
+
+
+async def _verify_green(a: ActionInput) -> ActionResult:
     ac_id = (a.ac or {}).get("id")
     label = ac_id or "the suite"
     bug = bug_mod.current(a) if not ac_id else None
