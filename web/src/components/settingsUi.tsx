@@ -302,6 +302,8 @@ export function Fold({
         className="ss-fold"
         aria-expanded={open}
         aria-controls={`st-${id}-b`}
+        aria-labelledby={`st-${id}-h`}
+        aria-describedby={sub ? `st-${id}-s` : undefined}
         onClick={onToggle}
       >
         <span className="ss-fold-a" aria-hidden="true">
@@ -311,7 +313,7 @@ export function Fold({
           <span id={`st-${id}-h`} className="ss-fold-h">
             {title}
           </span>
-          {sub && <span className="ss-meta">{sub}</span>}
+          {sub && <span id={`st-${id}-s`} className="ss-meta">{sub}</span>}
         </span>
         {badge}
       </button>

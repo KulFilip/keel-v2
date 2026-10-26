@@ -66,11 +66,11 @@ describe("KeelBot's CI button and the setting", () => {
 
   it("Settings › When CI fails saves the choice", async () => {
     const user = userEvent.setup();
-    location.hash = "#/settings";
+    location.hash = "#/settings/general";
     render(<App />);
-    await user.selectOptions(
-      await screen.findByLabelText("When CI fails"),
-      "fix",
+    await user.click(await screen.findByRole("button", { name: "Git" }));
+    await user.click(
+      within(screen.getByRole("group", { name: "When CI fails" })).getByRole("button", { name: "start the fix flow" }),
     );
     await waitFor(() =>
       expect(db.calls.at(-1)?.body).toEqual({ ci_on_failure: "fix" }),

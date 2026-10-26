@@ -57,7 +57,7 @@ describe("notifications", () => {
     await ready();
     await user.click(screen.getByRole("button", { name: /Notifications/ }));
     await user.click(screen.getByRole("tab", { name: "Settings" }));
-    await user.selectOptions(screen.getByLabelText("Sound"), "off");
+    await user.click(within(screen.getByRole("group", { name: "Sound" })).getByRole("button", { name: "Silent" }));
     await waitFor(() => expect(db.calls.find((c) => c.path === "/api/notification-settings")?.body).toMatchObject({ tone: "off" }));
     await user.click(screen.getByRole("button", { name: "Send a test notification" }));
     expect(await screen.findByTestId("popups")).toHaveTextContent("Test notification");

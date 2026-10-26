@@ -143,10 +143,12 @@ describe("Connections: local model servers", () => {
   it("adds an Ollama server with its default URL, keeps the key secret, and tests the connection", async () => {
     const calls = servers();
     const user = userEvent.setup();
-    location.hash = "#/connections";
+    location.hash = "#/settings/models";
     render(<App />);
     const card = await realCard("conn-local");
     expect(within(card).getByText("Not set up")).toBeInTheDocument();
+    // Set up opens the provider's row (one row is open at a time)
+    await user.click(within(card).getByRole("button", { name: "Set up" }));
     await user.click(
       await within(card).findByRole("button", { name: "Add a server" }),
     );
@@ -185,9 +187,10 @@ describe("Connections: local model servers", () => {
   it("switching the kind moves a default URL along", async () => {
     servers();
     const user = userEvent.setup();
-    location.hash = "#/connections";
+    location.hash = "#/settings/models";
     render(<App />);
     const card = await realCard("conn-local");
+    await user.click(within(card).getByRole("button", { name: "Set up" }));
     await user.click(
       await within(card).findByRole("button", { name: "Add a server" }),
     );
@@ -202,7 +205,7 @@ describe("Connections: Vertex AI", () => {
   it("saves the project, region and a service-account key, then shows only the account", async () => {
     const calls = servers();
     const user = userEvent.setup();
-    location.hash = "#/connections";
+    location.hash = "#/settings/models";
     render(<App />);
     const card = await realCard("conn-vertex");
     const project = await within(card).findByLabelText("Project id");

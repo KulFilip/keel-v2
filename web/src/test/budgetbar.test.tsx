@@ -16,7 +16,7 @@ describe("Budget bar on top of every page", () => {
     const b = await bar();
     const today = await within(b).findByTestId("bb-today");
     expect(today).toHaveTextContent("Today120k$0.42");
-    expect(today).toHaveAttribute("href", "#/budget");
+    expect(today).toHaveAttribute("href", "#/settings/budget");
     expect(within(b).getByTestId("bb-this-month")).toHaveTextContent("This month1.90M$24.10");
     const flow = within(b).getByTestId("bb-flow");
     expect(flow).toHaveTextContent("waiting");

@@ -224,6 +224,12 @@ export const GENERAL_SECTIONS: GeneralSection[] = [
   },
 ];
 
+/** A project's setting that another tab shows (its models, its budget rules): where the scope line points to. */
+const OTHER_TAB: Record<string, [string, string]> = Object.fromEntries([
+  ...["default_model", "implementer_model", "reviewer_model", "cheaper_model", "local_only"].map((k) => [k, ["models", "Models & logins"]]),
+  ...["cap_tokens", "on_cap", "usage_warn", "usage_pause"].map((k) => [k, ["budget", "Budget"]]),
+]);
+
 /** The last sections: after keel's and the parts' own. */
 const TAIL_SECTIONS: GeneralSection[] = [
   {
@@ -432,8 +438,12 @@ export function GeneralTab({
   ].filter((x) => !x.only || x.only === (isProj ? "project" : "general"));
 
   const data = isProj ? s.proj : s.general;
-  const changed =
-    isProj && s.proj.data ? Object.keys(s.ov).filter(s.isChanged) : [];
+  // what this project changes: General's own rows here; the models and the budget rules are on their tabs
+  const allChanged = isProj && s.proj.data ? Object.keys(s.ov).filter(s.isChanged) : [];
+  const here = new Set(sections.flatMap((x) => x.rows.map((r) => r.key)));
+  const changed = allChanged.filter((k) => here.has(k));
+  const elsewhere = allChanged.filter((k) => !here.has(k) && OTHER_TAB[k]);
+  const elseTabs = [...new Map(elsewhere.map((k) => [OTHER_TAB[k][0], OTHER_TAB[k]])).values()];
   const filter = isProj && only && changed.length > 0;
   const shown = sections
     .map((x) => ({
@@ -493,6 +503,14 @@ export function GeneralTab({
               ? `${changed.length} setting${changed.length === 1 ? "" : "s"} changed for ${offerName}.`
               : "Everything follows Every project."}{" "}
             A value you do not change here comes from Every project.
+            {elsewhere.length > 0 && (
+              <>
+                {" "}{elsewhere.length} more {elsewhere.length === 1 ? "is" : "are"} changed on{" "}
+                {elseTabs.map((t, i) => (
+                  <span key={t[0]}>{i > 0 && " and "}<a href={settingsHash(t[0])}>{t[1]}</a></span>
+                ))}.
+              </>
+            )}
           </span>
           {changed.length > 0 && <Switch on={only} onChange={setOnly}>Only changed</Switch>}
         </div>

@@ -46,10 +46,13 @@ describe("Budget: caps left", () => {
     await main().findByRole("table", { name: "Caps" });
     await user.click(screen.getAllByRole("button", { name: "Add cap" })[0]);
     const add = await screen.findByRole("dialog", { name: "Add cap" });
-    await user.selectOptions(within(add).getByLabelText("What it limits"), "day");
-    expect(within(add).getByText(/Counts every run of this project since 00:00 UTC/)).toBeInTheDocument();
-    await user.selectOptions(within(add).getByLabelText("What it limits"), "step");
-    await user.selectOptions(within(add).getByLabelText("Unit"), "usd");
+    // each scope is a choice with what it counts under it
+    const scopes = within(add).getByRole("radiogroup", { name: "What it limits" });
+    expect(within(scopes).getByRole("radio", { name: /All flows, per day/ })).toHaveTextContent(/Counts every run of this project since 00:00 UTC/);
+    await user.click(within(scopes).getByRole("radio", { name: /All flows, per day/ }));
+    expect(within(scopes).getByRole("radio", { name: /All flows, per day/ })).toHaveAttribute("aria-checked", "true");
+    await user.click(within(scopes).getByRole("radio", { name: /Any single agent step/ }));
+    await user.click(within(within(add).getByRole("group", { name: "Unit" })).getByRole("button", { name: "US dollars (API cost)" }));
     expect(within(add).getByRole("note")).toHaveTextContent("keel cannot count dollars per step: this cap would limit nothing. Pick tokens.");
   });
 });

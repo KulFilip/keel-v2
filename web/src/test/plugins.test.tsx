@@ -40,7 +40,7 @@ describe("Tools: no Plugins section", () => {
     expect(screen.queryByRole("article", { name: "Database plugin" })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Install for / })).toBeNull();
     expect(screen.queryByText(/Plugins keel adds/)).toBeNull();
-    expect(screen.getByText(/Plugins are turned on in Control › Plugins/)).toBeInTheDocument();
+    expect(screen.getByText(/Plugins are turned on in Settings › Plugins/)).toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: "explorer may use keel-db" })).toBeNull();
   });
 
@@ -69,7 +69,7 @@ describe("Control › Plugins: a plugin each project turns on", () => {
   it("Installed: one control with three named choices, each with its api call", async () => {
     const user = userEvent.setup();
     installDbGit();
-    location.hash = "#/plugins";
+    location.hash = "#/settings/plugins";
     render(<App />);
     const row = await screen.findByTestId("plugin-db");
     const group = await within(row).findByRole("radiogroup", { name: "Database: where it is on" });
@@ -106,7 +106,7 @@ describe("Control › Plugins: a plugin each project turns on", () => {
   it("Installed: All projects to This project puts All projects back when the second call fails", async () => {
     const user = userEvent.setup();
     installDbGit();
-    location.hash = "#/plugins";
+    location.hash = "#/settings/plugins";
     render(<App />);
     const row = await screen.findByTestId("plugin-db");
     const group = await within(row).findByRole("radiogroup", { name: "Database: where it is on" });
@@ -126,7 +126,7 @@ describe("Control › Plugins: a plugin each project turns on", () => {
   it("Installed: a project's choice for a plugin keel has loaded says applied (no restart)", async () => {
     const user = userEvent.setup();
     installDbGit();
-    location.hash = "#/plugins";
+    location.hash = "#/settings/plugins";
     render(<App />);
     const row = await screen.findByTestId("plugin-db");
     const group = await within(row).findByRole("radiogroup", { name: "Database: where it is on" });
@@ -141,7 +141,7 @@ describe("Control › Plugins: a plugin each project turns on", () => {
     installDbGit();
     db.market.installed[0].on = false;
     db.projectPlugins["ludus-engine"] = { db: true }; // its own row says on, but nothing loads while keel has it off
-    location.hash = "#/plugins";
+    location.hash = "#/settings/plugins";
     render(<App />);
     const group = await within(await screen.findByTestId("plugin-db")).findByRole("radiogroup", { name: "Database: where it is on" });
     await waitFor(() => expect(choices(group)).toEqual(["Off*", "This project", "All projects"]));
@@ -161,11 +161,11 @@ describe("Control › Plugins: a plugin each project turns on", () => {
     installDbGit();
     db.projectPlugins.platform = { db: true };
     db.projectPlugins.yegi = { db: true };
-    location.hash = "#/plugins";
+    location.hash = "#/settings/plugins";
     render(<App />);
     const row = await screen.findByTestId("plugin-db");
     const hint = await within(row).findByRole("link", { name: "on in 2 other projects" });
-    expect(hint).toHaveAttribute("href", "#/plugins/db?at=projects");
+    expect(hint).toHaveAttribute("href", "#/settings/plugins/db?at=projects");
     // git is on nowhere: no hint
     expect(within(screen.getByTestId("plugin-git")).queryByRole("link", { name: /other project/ })).toBeNull();
 
@@ -178,7 +178,7 @@ describe("Control › Plugins: a plugin each project turns on", () => {
   it("Installed: the arrow keys move the choice and apply it; Home and End; one tab stop", async () => {
     const user = userEvent.setup();
     installDbGit();
-    location.hash = "#/plugins";
+    location.hash = "#/settings/plugins";
     render(<App />);
     const group = await within(await screen.findByTestId("plugin-git")).findByRole("radiogroup", { name: "Git: where it is on" });
     const radio = (name: string) => within(group).getByRole("radio", { name });
@@ -214,7 +214,7 @@ describe("Control › Plugins: a plugin each project turns on", () => {
   it("Installed: a plugin with no per-project choice has one switch with On/Off beside it", async () => {
     const user = userEvent.setup();
     installDbGit();
-    location.hash = "#/plugins";
+    location.hash = "#/settings/plugins";
     render(<App />);
     const wiki = await screen.findByTestId("plugin-wiki");
     // the per-project plugins get their control once the project's list is read; wiki never does
@@ -238,7 +238,7 @@ describe("Control › Plugins: a plugin each project turns on", () => {
     expect(rule(".mk-seg")).toMatch(/min-width: max-content;[\s\S]*white-space: nowrap;/);
     expect(rule(".mk-seg-opt")).toContain("white-space: nowrap;");
     installDbGit();
-    location.hash = "#/plugins";
+    location.hash = "#/settings/plugins";
     render(<App />);
     const group = await within(await screen.findByTestId("plugin-db")).findByRole("radiogroup");
     expect(group.closest("td")).toHaveClass("mk-oncell");
@@ -251,7 +251,7 @@ describe("Control › Plugins: a plugin each project turns on", () => {
     db.projectPlugins.platform = { db: true };
     const seen: string[] = [];
     Element.prototype.scrollIntoView = function (this: Element) { seen.push(this.id); };
-    location.hash = "#/plugins/db?at=projects";
+    location.hash = "#/settings/plugins/db?at=projects";
     render(<App />);
     const about = await screen.findByRole("region", { name: "About" });
     await waitFor(() => expect(about).toHaveTextContent("KeelBot toolsdb_connections, db_schema, db_query"));
@@ -283,7 +283,7 @@ describe("Control › Plugins: a plugin each project turns on", () => {
 
   it("a plugin no project switches has no Projects section", async () => {
     installDbGit();
-    location.hash = "#/plugins/wiki";
+    location.hash = "#/settings/plugins/wiki";
     render(<App />);
     expect(await screen.findByRole("region", { name: "About" })).toBeInTheDocument();
     // the projects' lists are read; wiki is in none of them
@@ -294,7 +294,7 @@ describe("Control › Plugins: a plugin each project turns on", () => {
 });
 
 describe("Workflows: a block of a plugin that is off", () => {
-  it("says to turn it on in Control › Plugins, with a link to the plugin's page", async () => {
+  it("says to turn it on in Settings › Plugins, with a link to the plugin's page", async () => {
     const user = userEvent.setup();
     location.hash = "#/workflows/feature";
     render(<App />);
@@ -303,17 +303,17 @@ describe("Workflows: a block of a plugin that is off", () => {
     await user.clear(act);
     await user.type(act, "db:check");
     expect(await screen.findByText(/This block belongs to a plugin that is off for this project/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Control › Plugins" })).toHaveAttribute("href", "#/plugins/db");
+    expect(screen.getByRole("link", { name: "Settings › Plugins" })).toHaveAttribute("href", "#/settings/plugins/db");
   });
 });
 
 describe("Connections › GitHub", () => {
   it("keeps the GitHub token", async () => {
     const user = userEvent.setup();
-    location.hash = "#/connections";
+    location.hash = "#/settings/connections";
     render(<App />);
     await user.type(await screen.findByLabelText("GitHub token"), "ghp_123456789");
-    await user.click(within(screen.getByLabelText("GitHub token").closest(".gh-row") as HTMLElement).getByRole("button", { name: "Save" }));
+    await user.click(within(screen.getByTestId("github")).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(calls("PUT", "/api/secrets/GITHUB_REPO_TOKEN")[0]?.body).toEqual({ value: "ghp_123456789" }));
     expect(await screen.findByText("token set …789")).toBeInTheDocument();
   });
@@ -322,7 +322,7 @@ describe("Connections › GitHub", () => {
 describe("Connections › GitHub › Sign in with GitHub", () => {
   it("opens the shared login drawer, shows the code and the link, then who is connected, and signs out", async () => {
     const user = userEvent.setup();
-    location.hash = "#/connections";
+    location.hash = "#/settings/connections";
     render(<App />);
     await user.click(await screen.findByRole("button", { name: "Sign in with GitHub" }));
     const dlg = screen.getByRole("dialog", { name: "Set up GitHub login" });
@@ -330,11 +330,14 @@ describe("Connections › GitHub › Sign in with GitHub", () => {
     await user.clear(within(dlg).getByLabelText("GitHub host"));
     await user.type(within(dlg).getByLabelText("GitHub host"), "ghe.example.com");
     await user.click(within(dlg).getByRole("button", { name: "Start login" }));
-    expect(await within(dlg).findByText("AB12-CD34")).toBeInTheDocument();
+    // step 2: open (or copy) the link; step 3: the code to type there
+    const link = await within(dlg).findByRole("link", { name: "Open ghe.example.com" });
+    expect(link).toHaveAttribute("href", "https://ghe.example.com/login/device");
     expect(calls("POST", "/api/github/login")[0]?.body).toEqual({ host: "ghe.example.com" });
-    expect(within(dlg).getByRole("link", { name: "Open ghe.example.com" })).toHaveAttribute("href", "https://ghe.example.com/login/device");
+    expect(within(dlg).queryByText("AB12-CD34")).not.toBeInTheDocument();
+    await user.click(within(dlg).getByRole("button", { name: "Copy link" }));
+    expect(await within(dlg).findByText("AB12-CD34")).toBeInTheDocument();
     expect(within(dlg).getByRole("button", { name: "Copy code" })).toBeInTheDocument();
-    expect(within(dlg).getByRole("button", { name: "Copy link" })).toBeInTheDocument();
     // the poll finds it done: who is connected, with the scopes and the host (in the drawer and on the card)
     expect(await within(dlg).findByText("✓ connected as mili-dev · repo, workflow · github.com", {}, { timeout: 4000 })).toBeInTheDocument();
     expect(within(dlg).queryByText("AB12-CD34")).not.toBeInTheDocument();
@@ -354,10 +357,11 @@ describe("Connections › GitHub › Sign in with GitHub", () => {
     const user = userEvent.setup();
     server.use(http.get("/api/github/login/:id", () => HttpResponse.json({ id: "gl-1", status: "waiting", host: "github.com", url: "https://github.com/login/device",
       code: "AB12-CD34", message: "Waiting", login: null, scopes: [], via: null })));
-    location.hash = "#/connections";
+    location.hash = "#/settings/connections";
     render(<App />);
     await user.click(await screen.findByRole("button", { name: "Sign in with GitHub" }));
     await user.click(screen.getByRole("button", { name: "Start login" }));
+    await user.click(await screen.findByRole("button", { name: "Copy link" }));
     expect(await screen.findByText("AB12-CD34")).toBeInTheDocument();
     await user.click(screen.getAllByRole("button", { name: "Close" })[0]);
     await waitFor(() => expect(calls("DELETE", "/api/github/login/gl-1")).toHaveLength(1));

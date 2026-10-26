@@ -457,11 +457,11 @@ describe("run modes", () => {
   it("the project default comes from Settings", async () => {
     const user = userEvent.setup();
     db.overrides["ludus-engine"] = { ...db.overrides["ludus-engine"], run_mode: "important" };
-    location.hash = "#/settings";
+    location.hash = "#/settings/general/ludus-engine";
     render(<App />);
-    const sel = await screen.findByLabelText("Run mode (new flows)");
-    expect(sel).toHaveValue("important");
-    await user.selectOptions(sel, "readonly");
+    const sel = await screen.findByRole("group", { name: "Run mode (new flows)" });
+    expect(within(sel).getByRole("button", { name: "Important only" })).toHaveAttribute("aria-pressed", "true");
+    await user.click(within(sel).getByRole("button", { name: "Read-only" }));
     await waitFor(() => expect(calls("PUT", "/api/projects/ludus-engine/settings").at(-1)?.body).toEqual({ run_mode: "readonly" }));
   });
 

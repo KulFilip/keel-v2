@@ -346,7 +346,7 @@ describe("the editor", () => {
 
   it("imports what keel found in the project: its address stays masked, the api reads the password again", async () => {
     const user = userEvent.setup();
-    const side = await openPage("#/connections");
+    const side = await openPage("#/settings/databases");
     await user.click(
       within(side).getByRole("button", { name: "Find in project" }),
     );

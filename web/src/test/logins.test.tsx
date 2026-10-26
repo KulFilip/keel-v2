@@ -8,7 +8,7 @@ import { db, server } from "./setup";
 describe("Connections: CLI logins", () => {
   it("saves the Claude login token as its own encrypted secret and shows only the hint", async () => {
     const user = userEvent.setup();
-    location.hash = "#/connections";
+    location.hash = "#/settings/models";
     render(<App />);
     const field = await screen.findByLabelText(/Claude login token/);
     await user.type(field, "sk-ant-oat01-secret-9KQ");
@@ -24,7 +24,7 @@ describe("Connections: CLI logins", () => {
     server.use(http.put("/api/secrets/:name", () => HttpResponse.json({ error: "The Claude login token has characters a token never has (#).",
       hint: "A token shown over two lines is often copied with extra characters. Copy it in one piece and save it again." }, { status: 400 })));
     const user = userEvent.setup();
-    location.hash = "#/connections";
+    location.hash = "#/settings/models";
     render(<App />);
     const field = await screen.findByLabelText(/Claude login token/);
     await user.type(field, "sk-ant-oat01-test_ABC#more");

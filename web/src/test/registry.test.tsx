@@ -154,12 +154,10 @@ describe("registerSlot and useSlot", () => {
 
   it("keel's built-in parts fill the step 2 slots", () => {
     const ids = (slot: string) => slotItems(slot).map((i) => i.id);
-    expect(ids(SLOTS.connectionsKind)).toEqual([
-      "jira",
-      "github",
-      "gitlab",
-      "databases",
-    ]);
+    // keel 0.18.57 Settings › Connections: the logins for every project first, then Jira per project
+    expect(ids(SLOTS.connectionsKind)).toEqual(["github", "gitlab", "jira"]);
+    // the Database plugin's Databases is a Settings tab of its own
+    expect(ids(SLOTS.settingsTab)).toEqual(["databases"]);
     expect(ids(SLOTS.jobsTab)).toEqual(["pipelines", "supervisor"]);
     expect(ids(SLOTS.toolsCard)).toEqual(["jira-catalog"]);
     expect(ids(SLOTS.workflowActions).sort()).toEqual(["db", "git"]);
@@ -189,20 +187,20 @@ describe("registerSlot and useSlot", () => {
       ],
     });
     try {
-      location.hash = "#/settings";
+      location.hash = "#/settings/general";
       render(<App />);
       const sec = await screen.findByRole("region", { name: "Demo part" });
       expect(
         within(sec).getByText("What the demo part does."),
       ).toBeInTheDocument();
-      // the rows come once the settings have loaded (a moment after the section on a slow machine)
-      expect(await within(sec).findByLabelText("Demo mode")).toHaveValue("1");
-      const nav = screen.getByRole("navigation", { name: "Settings sections" });
-      const names = within(nav)
-        .getAllByRole("button")
-        .map((b) => b.textContent);
+      // a part's section starts folded; its rows come once the settings have loaded
+      await userEvent.setup().click(within(sec).getByRole("button", { name: "Demo part" }));
+      expect(
+        within(await within(sec).findByRole("group", { name: "Demo mode" })).getByRole("button", { name: "on" }),
+      ).toHaveAttribute("aria-pressed", "true");
+      const names = screen.getAllByRole("region").map((r) => r.getAttribute("aria-labelledby") && document.getElementById(r.getAttribute("aria-labelledby")!)?.textContent);
       // after keel's own sections, with the other parts' (Code Review threads), before This browser
-      expect(names.indexOf("Demo part")).toBeGreaterThan(names.indexOf("Budget"));
+      expect(names.indexOf("Demo part")).toBeGreaterThan(names.indexOf("Environment"));
       expect(names.indexOf("Demo part")).toBeLessThan(names.indexOf("This browser"));
       expect(names).toContain("Code Review threads");
     } finally {
@@ -306,15 +304,8 @@ describe("the menu and the links stay as they were", () => {
       id: "control",
       label: "Control",
       hint: "cost, limits, accounts",
-      pages: [
-        ["budget", "Budget"],
-        ["settings", "Settings"],
-        ["connections", "Connections"],
-        // keel 0.18.38 the Database plugin's page: connections for all projects or one
-        ["databases", "Databases"],
-        // v0.16.0 step 4's one new page: the plugins and the marketplace
-        ["plugins", "Plugins"],
-      ],
+      // keel 0.18.57 one Settings page: Budget, Connections, Plugins and the Database plugin's Databases are its tabs
+      pages: [["settings", "Settings"]],
     },
   ];
 
@@ -342,7 +333,7 @@ describe("the menu and the links stay as they were", () => {
     ).toEqual([
       ["run", ["inbox"]],
       ["know", ["helper"]],
-      ["control", ["budget", "settings", "connections", "plugins"]],
+      ["control", ["settings"]],
     ]);
   });
 

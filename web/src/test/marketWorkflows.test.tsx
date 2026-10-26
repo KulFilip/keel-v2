@@ -1,6 +1,6 @@
 // 0.16.1 plugin track: the marketplace for workflows in the web (docs/plugins/21-workflow-marketplace.md §4):
 // Control › Plugins › Marketplace's kind switch (Plugins · Workflows, ?kind=workflows), the Workflows view's cards and
-// its note when no catalog answers, a workflow's page (#/plugins/workflow/<name>), the install dialog (this project or
+// its note when no catalog answers, a workflow's page (#/settings/plugins/workflow/<name>), the install dialog (this project or
 // all, 409 missing plugins / agents), and on Build › Workflows the badge, Update (keep my copy / replace), Remove and
 // Publish to marketplace. keel's own workflows look as before.
 
@@ -27,23 +27,23 @@ const card = (title: string) =>
 describe("Control › Plugins › Marketplace: the kind switch", () => {
   it("shows plugins first; Workflows keeps ?tab=market and adds ?kind=workflows", async () => {
     const user = userEvent.setup();
-    open("#/plugins?tab=market");
+    open("#/settings/plugins?tab=market");
     const kinds = await screen.findByRole("group", { name: "What to find" });
     expect(within(kinds).getByRole("button", { name: "Plugins" })).toHaveAttribute("aria-pressed", "true");
     expect(await screen.findByRole("article", { name: "Database plugin" })).toBeInTheDocument();
     await user.click(within(kinds).getByRole("button", { name: "Workflows" }));
-    await waitFor(() => expect(location.hash).toBe("#/plugins?tab=market&kind=workflows"));
+    await waitFor(() => expect(location.hash).toBe("#/settings/plugins?tab=market&kind=workflows"));
     expect(await card("Release notes")).toBeInTheDocument();
     expect(screen.queryByRole("article", { name: "Database plugin" })).toBeNull();
     expect(screen.getByRole("tab", { name: "Marketplace" })).toHaveAttribute("aria-selected", "true");
     // and back
     await user.click(within(kinds).getByRole("button", { name: "Plugins" }));
-    await waitFor(() => expect(location.hash).toBe("#/plugins?tab=market"));
+    await waitFor(() => expect(location.hash).toBe("#/settings/plugins?tab=market"));
     expect(await screen.findByRole("article", { name: "Database plugin" })).toBeInTheDocument();
   });
 
   it("?kind=workflows opens the Workflows view, and the search names the project", async () => {
-    open("#/plugins?tab=market&kind=workflows");
+    open("#/settings/plugins?tab=market&kind=workflows");
     expect(await card("Hotfix")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Workflows" })).toHaveAttribute("aria-pressed", "true");
     expect(db.mw.searches[0]).toEqual({ q: "", category: "", project: "ludus-engine" });
@@ -52,7 +52,7 @@ describe("Control › Plugins › Marketplace: the kind switch", () => {
 
 describe("Marketplace › Workflows: the cards", () => {
   it("shows the review in short (red when it runs commands), what it needs, and Install / Installed here / Update", async () => {
-    open("#/plugins?tab=market&kind=workflows");
+    open("#/settings/plugins?tab=market&kind=workflows");
     const rel = await card("Release notes");
     expect(rel).toHaveTextContent("ana-k");
     expect(rel).toHaveTextContent("community");
@@ -66,7 +66,7 @@ describe("Marketplace › Workflows: the cards", () => {
     expect(within(needs).getByText("needs git")).toHaveClass("warn");
     expect(within(needs).getByText("agent release-writer")).toBeInTheDocument();
     expect(within(rel).getByRole("button", { name: "Install Release notes" })).toBeEnabled();
-    expect(within(rel).getByRole("link", { name: "Release notes" })).toHaveAttribute("href", "#/plugins/workflow/release-notes");
+    expect(within(rel).getByRole("link", { name: "Release notes" })).toHaveAttribute("href", "#/settings/plugins/workflow/release-notes");
 
     const hot = await card("Hotfix");
     const shortHot = within(hot).getByText("4 steps · 1 gate");
@@ -83,7 +83,7 @@ describe("Marketplace › Workflows: the cards", () => {
 
   it("searches, and the category chips narrow the list", async () => {
     const user = userEvent.setup();
-    open("#/plugins?tab=market&kind=workflows");
+    open("#/settings/plugins?tab=market&kind=workflows");
     await card("Release notes");
     // the category chips come with the catalog's answer, a moment after the cards on a slow machine
     await user.click(await screen.findByRole("button", { name: "Docs" }));
@@ -98,7 +98,7 @@ describe("Marketplace › Workflows: the cards", () => {
 
   it("with no workflow catalog: a clear note, never an empty page", async () => {
     db.mw.down = true;
-    open("#/plugins?tab=market&kind=workflows");
+    open("#/settings/plugins?tab=market&kind=workflows");
     const note = await screen.findByRole("note", { name: "No workflow catalog" });
     expect(note).toHaveTextContent("No workflow catalog answers yet.");
     expect(note).toHaveTextContent("make your own in Build › Workflows and publish it");
@@ -109,7 +109,7 @@ describe("Marketplace › Workflows: the cards", () => {
   it("a catalog that lists no workflows says so too", async () => {
     db.mw.catalog = [];
     db.mw.sources = [];
-    open("#/plugins?tab=market&kind=workflows");
+    open("#/settings/plugins?tab=market&kind=workflows");
     expect(await screen.findByRole("note", { name: "No workflow catalog" })).toHaveTextContent(
       "The catalogs list no workflows yet.",
     );
@@ -119,10 +119,10 @@ describe("Marketplace › Workflows: the cards", () => {
 describe("A workflow's page", () => {
   it("shows the steps as a graph, the YAML folded, the review, what it needs, versions and checks", async () => {
     db.market.installed = [{ name: "git", title: "Git", version: "1.0.0", on: false, status: "off", from: "image" }];
-    open("#/plugins/workflow/release-notes");
+    open("#/settings/plugins/workflow/release-notes");
     expect(await screen.findByRole("heading", { name: "Release notes", level: 1 })).toBeInTheDocument();
     const crumb = screen.getByRole("navigation", { name: "Breadcrumb" });
-    expect(within(crumb).getByRole("link", { name: "Workflows" })).toHaveAttribute("href", "#/plugins?tab=market&kind=workflows");
+    expect(within(crumb).getByRole("link", { name: "Workflows" })).toHaveAttribute("href", "#/settings/plugins?tab=market&kind=workflows");
     expect(screen.getByText("Content only")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Install 1.2.0" })).toBeEnabled();
 
@@ -152,7 +152,7 @@ describe("A workflow's page", () => {
     const needs = screen.getByRole("region", { name: "Needs" });
     const git = within(needs).getByTestId("needs-plugin-git");
     expect(git).toHaveTextContent("Git >=1.0.0 plugin · off");
-    expect(within(git).getByRole("link", { name: "turn on" })).toHaveAttribute("href", "#/plugins/git");
+    expect(within(git).getByRole("link", { name: "turn on" })).toHaveAttribute("href", "#/settings/plugins/git");
     expect(await within(needs).findByText("agent · missing")).toBeInTheDocument();
 
     const versions = screen.getByRole("region", { name: "Versions" });
@@ -168,15 +168,15 @@ describe("A workflow's page", () => {
 
   it("an agent this keel has shows as here; a plugin not installed links to its page to install it", async () => {
     db.agents.push({ ...db.agents[0], id: "release-writer", label: "release-writer", custom: true });
-    open("#/plugins/workflow/release-notes");
+    open("#/settings/plugins/workflow/release-notes");
     const needs = await screen.findByRole("region", { name: "Needs" });
     expect(await within(needs).findByText("agent · here")).toBeInTheDocument();
-    expect(within(needs).getByRole("link", { name: "install it" })).toHaveAttribute("href", "#/plugins/git");
+    expect(within(needs).getByRole("link", { name: "install it" })).toHaveAttribute("href", "#/settings/plugins/git");
   });
 
   it("a workflow keel refuses: its error, with the way back", async () => {
     db.mw.catalog[0].refused = "Its publisher's key was revoked.";
-    open("#/plugins/workflow/release-notes");
+    open("#/settings/plugins/workflow/release-notes");
     expect(await screen.findByRole("alert")).toHaveTextContent("Its publisher's key was revoked.");
     expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toBeInTheDocument();
   });
@@ -185,7 +185,7 @@ describe("A workflow's page", () => {
 describe("Installing a workflow", () => {
   it("asks this project (the default) or all projects, shows the review again, and installs", async () => {
     const user = userEvent.setup();
-    open("#/plugins/workflow/release-notes");
+    open("#/settings/plugins/workflow/release-notes");
     await user.click(await screen.findByRole("button", { name: "Install 1.2.0" }));
     const dlg = await screen.findByRole("dialog", { name: "Install Release notes 1.2.0?" });
     expect(within(dlg).getByRole("radio", { name: /This project/ })).toBeChecked();
@@ -202,7 +202,7 @@ describe("Installing a workflow", () => {
 
   it("an older version can be picked", async () => {
     const user = userEvent.setup();
-    open("#/plugins/workflow/release-notes");
+    open("#/settings/plugins/workflow/release-notes");
     await user.click(await screen.findByRole("button", { name: "Install 1.2.0" }));
     const dlg = await screen.findByRole("dialog", { name: "Install Release notes 1.2.0?" });
     await user.selectOptions(within(dlg).getByLabelText("Version"), "1.1.0");
@@ -222,18 +222,18 @@ describe("Installing a workflow", () => {
       missing_plugins: ["git"],
       missing_agents: ["release-writer"],
     };
-    open("#/plugins?tab=market&kind=workflows");
+    open("#/settings/plugins?tab=market&kind=workflows");
     await user.click(within(await card("Release notes")).getByRole("button", { name: "Install Release notes" }));
     const dlg = await screen.findByRole("dialog", { name: "Install Release notes 1.2.0?" });
     await user.click(within(dlg).getByRole("button", { name: "Install" }));
     const why = await within(dlg).findByRole("alert", { name: "Missing to install" });
     expect(why).toHaveTextContent("Release notes needs what this keel does not have.");
-    expect(within(why).getByRole("link", { name: "Open the git plugin's page" })).toHaveAttribute("href", "#/plugins/git");
+    expect(within(why).getByRole("link", { name: "Open the git plugin's page" })).toHaveAttribute("href", "#/settings/plugins/git");
     expect(why).toHaveTextContent("keel has no agent named release-writer");
     expect(calls("POST", "/api/plugins/install")).toHaveLength(0);
     // the plugin path: its page
     await user.click(within(why).getByRole("link", { name: "Open the git plugin's page" }));
-    await waitFor(() => expect(location.hash).toBe("#/plugins/git"));
+    await waitFor(() => expect(location.hash).toBe("#/settings/plugins/git"));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Install Release notes 1.2.0?" })).toBeNull());
   });
 });

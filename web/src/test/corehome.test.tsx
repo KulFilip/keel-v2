@@ -80,7 +80,7 @@ describe("core only: the welcome on the Flow page", () => {
     openFlow();
     const dev = await screen.findByRole("group", { name: "Developer set" });
     await user.click(within(dev).getByRole("button", { name: "Install 2" }));
-    await waitFor(() => expect(location.hash).toBe("#/plugins?set=developer"));
+    await waitFor(() => expect(location.hash).toBe("#/settings/plugins?set=developer"));
     expect(await screen.findByRole("heading", { name: "Start with the Developer set" })).toBeInTheDocument();
     expect(calls("POST", "/api/plugins/install")).toEqual([]);
     expect(calls("PUT", "/api/plugins/wiki")).toEqual([]);
@@ -97,7 +97,7 @@ describe("core only: the welcome on the Flow page", () => {
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Open the marketplace" }));
-    await waitFor(() => expect(location.hash).toBe("#/plugins?tab=market"));
+    await waitFor(() => expect(location.hash).toBe("#/settings/plugins?tab=market"));
   });
 
   it("full keel: no welcome, the Flow page's own empty state and the usual tag", async () => {
@@ -132,7 +132,7 @@ describe("core only: the menu's Project group", () => {
     expect(within(box).queryAllByRole("link")).toEqual([]);
     expect(box.closest(".nav-sec")).toHaveTextContent(/^Project/);
     await user.click(within(box).getByRole("button", { name: "+ Add pages" }));
-    await waitFor(() => expect(location.hash).toBe("#/plugins?tab=market"));
+    await waitFor(() => expect(location.hash).toBe("#/settings/plugins?tab=market"));
   });
 
   it("full keel: the Project pages, no box", async () => {

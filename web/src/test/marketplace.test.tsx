@@ -1,6 +1,6 @@
 // v0.16.0 step 4 in the web (docs/plugins/13-step4-contract.md §9): Control › Plugins with its three tabs (Installed,
 // Marketplace, Sources and rules), the install dialog, the restart banner, and a keel with only its core:
-// #/plugins?set=<id> installs a set. v0.16.1: the look of docs/plugins/mockup.html: keel core's row, nested rows,
+// #/settings/plugins?set=<id> installs a set. v0.16.1: the look of docs/plugins/mockup.html: keel core's row, nested rows,
 // cards without a catalog, a plugin's own page, ?tab=. The Inbox card and the core welcome: corehome.test.tsx.
 
 import { render, screen, waitFor, within } from "@testing-library/react";
@@ -23,7 +23,7 @@ import { db, server } from "./setup";
 const calls = (method: string, path: string) =>
   db.calls.filter((c) => c.method === method && c.path === path);
 
-async function openPlugins(hash = "#/plugins") {
+async function openPlugins(hash = "#/settings/plugins") {
   location.hash = hash;
   render(<App />);
   return screen.findByRole("heading", { name: "Plugins", level: 1 });
@@ -93,11 +93,15 @@ describe("Control › Plugins: Installed", () => {
   it("is the one new page in Control, and lists keel core first, then each plugin with its version, parts, from, status and problems", async () => {
     installSome();
     await openPlugins();
+    // keel 0.18.57 a tab of the Settings page: Settings in the menu, Plugins in the settings menu
     const nav = screen.getByRole("navigation", { name: "Screens" });
-    expect(within(nav).getByRole("link", { name: "Plugins" })).toHaveAttribute(
+    expect(within(nav).getByRole("link", { name: /^Settings/ })).toHaveAttribute(
       "aria-current",
       "page",
     );
+    expect(
+      within(screen.getByRole("navigation", { name: "Settings sections" })).getByRole("link", { name: "Plugins" }),
+    ).toHaveAttribute("aria-current", "page");
     // a normal keel has its Project pages: no "No pages yet" box
     expect(
       within(nav).queryByRole("group", { name: "No pages yet" }),
@@ -110,7 +114,7 @@ describe("Control › Plugins: Installed", () => {
       screen.getByRole("button", { name: "Check for updates" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Browse marketplace" }),
+      screen.getByRole("button", { name: "Browse the marketplace" }),
     ).toBeInTheDocument();
 
     // keel core is the first row: its version, its parts, the image, always on
@@ -177,7 +181,7 @@ describe("Control › Plugins: Installed", () => {
     // the title opens the plugin's own page
     expect(within(dbRow).getByRole("link", { name: "Database" })).toHaveAttribute(
       "href",
-      "#/plugins/db",
+      "#/settings/plugins/db",
     );
   });
 
@@ -291,8 +295,8 @@ describe("Control › Plugins: Installed", () => {
     expect(await screen.findByText("keel is restarting…")).toBeInTheDocument();
   });
 
-  it("#/plugins?tab=market opens the Marketplace tab (the core welcome, the menu's + Add pages); tab=sources the sources", async () => {
-    await openPlugins("#/plugins?tab=market");
+  it("#/settings/plugins?tab=market opens the Marketplace tab (the core welcome, the menu's + Add pages); tab=sources the sources", async () => {
+    await openPlugins("#/settings/plugins?tab=market");
     expect(screen.getByRole("tab", { name: "Marketplace" })).toHaveAttribute(
       "aria-selected",
       "true",
@@ -300,13 +304,13 @@ describe("Control › Plugins: Installed", () => {
     expect(
       await screen.findByRole("article", { name: "Database plugin" }),
     ).toBeInTheDocument();
-    location.hash = "#/plugins?tab=sources";
+    location.hash = "#/settings/plugins?tab=sources";
     await waitFor(() =>
       expect(
         screen.getByRole("tab", { name: "Sources and rules" }),
       ).toHaveAttribute("aria-selected", "true"),
     );
-    location.hash = "#/plugins?tab=installed";
+    location.hash = "#/settings/plugins?tab=installed";
     await waitFor(() =>
       expect(screen.getByRole("tab", { name: /^Installed/ })).toHaveAttribute(
         "aria-selected",
@@ -327,7 +331,7 @@ describe("Control › Plugins: Installed", () => {
     expect(
       await screen.findByText("1 update ready: Database."),
     ).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Browse marketplace" }));
+    await user.click(screen.getByRole("button", { name: "Browse the marketplace" }));
     expect(screen.getByRole("tab", { name: "Marketplace" })).toHaveAttribute(
       "aria-selected",
       "true",
@@ -639,7 +643,7 @@ describe("Control › Plugins: Marketplace", () => {
     await user.click(screen.getByRole("tab", { name: "Marketplace" }));
     const card = await screen.findByRole("article", { name: "Database plugin" });
     await user.click(within(card).getByRole("link", { name: "Database" }));
-    await waitFor(() => expect(location.hash).toBe("#/plugins/db"));
+    await waitFor(() => expect(location.hash).toBe("#/settings/plugins/db"));
     expect(
       await screen.findByRole("heading", { name: "Database", level: 1 }),
     ).toBeInTheDocument();
@@ -708,7 +712,7 @@ describe("Control › Plugins: Marketplace", () => {
       await screen.findByRole("button", { name: "Turn off" }),
     ).toBeInTheDocument();
     await user.click(within(crumb).getByRole("link", { name: "Marketplace" }));
-    await waitFor(() => expect(location.hash).toBe("#/plugins"));
+    await waitFor(() => expect(location.hash).toBe("#/settings/plugins"));
     expect(screen.getByRole("tab", { name: "Installed (2)" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Marketplace" })).toHaveAttribute(
       "aria-selected",
@@ -734,7 +738,7 @@ describe("Control › Plugins: Marketplace", () => {
         can_remove: false,
       },
     ];
-    location.hash = "#/plugins/graph";
+    location.hash = "#/settings/plugins/graph";
     render(<App />);
     expect(
       await screen.findByRole("heading", { name: "Graph", level: 1 }),
@@ -895,7 +899,7 @@ describe("a keel with only its core", () => {
     for (const p of hidden) registerPage({ ...p })();
   }
 
-  it("#/plugins?set=<id> (a set's Install N on the core welcome) installs what is missing and turns on what is off", async () => {
+  it("#/settings/plugins?set=<id> (a set's Install N on the core welcome) installs what is missing and turns on what is off", async () => {
     const user = userEvent.setup();
     coreOnly();
     db.market.installed = [
@@ -914,7 +918,7 @@ describe("a keel with only its core", () => {
         on: false,
       },
     ];
-    location.hash = "#/plugins?set=developer";
+    location.hash = "#/settings/plugins?set=developer";
     render(<App />);
 
     const offer = (
@@ -959,12 +963,12 @@ describe("a keel with only its core", () => {
         "The plugins are ready. Restart keel to use them.",
       ),
     ).toBeInTheDocument();
-    await waitFor(() => expect(location.hash).toBe("#/plugins"));
+    await waitFor(() => expect(location.hash).toBe("#/settings/plugins"));
   });
 
   it("a set's question that was cancelled stays closed, and the offer's button opens it again", async () => {
     const user = userEvent.setup();
-    await openPlugins("#/plugins?set=tickets");
+    await openPlugins("#/settings/plugins?set=tickets");
     const dialog = await screen.findByRole("dialog", {
       name: "Install the Tickets set?",
     });
@@ -986,14 +990,14 @@ describe("a keel with only its core", () => {
   });
 
   it("says when a set's link names no set", async () => {
-    await openPlugins("#/plugins?set=nope");
+    await openPlugins("#/settings/plugins?set=nope");
     expect(
       await screen.findByText("There is no set called nope."),
     ).toBeInTheDocument();
   });
 
   it("leaves out what no catalog has, and says why", async () => {
-    await openPlugins("#/plugins?set=tickets");
+    await openPlugins("#/settings/plugins?set=tickets");
     const dialog = await screen.findByRole("dialog", {
       name: "Install the Tickets set?",
     });
