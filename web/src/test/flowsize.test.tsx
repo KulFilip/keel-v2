@@ -47,6 +47,33 @@ describe("suggestFlow", () => {
     expect(suggestFlow("   ", ALL)).toBeNull();
   });
 
+  it("suggests the address flow when only test code changes", () => {
+    const all = [...ALL, "address"];
+    expect(
+      suggestFlow(
+        "Maybe a factory would fit here? tests/Integration/OrderHandlerTest.php:42 inserts its rows in setUp()",
+        all,
+      ),
+    ).toEqual({ id: "address", why: "only test code changes" });
+    expect(
+      suggestFlow(
+        "Use one helper in web/src/cart.test.ts and tests/test_orders.py",
+        all,
+      )?.id,
+    ).toBe("address");
+    // a production file named too: not test-only
+    expect(
+      suggestFlow(
+        "Move the totals from src/Orders/OrderTotal.php into tests/Unit/OrderTotalTest.php",
+        all,
+      )?.id,
+    ).not.toBe("address");
+    // a project without the address flow: quick, the next one that is not test-first
+    expect(
+      suggestFlow("Rename the helper in tests/test_orders.py", ALL),
+    ).toEqual({ id: "quick", why: "only test code changes" });
+  });
+
   it("only suggests a flow the project has", () => {
     expect(
       suggestFlow("Fix the typo in the title", ["small", "feature"])?.id,

@@ -485,9 +485,10 @@ export async function address(
   key: string,
   threadId: string,
   note?: string,
+  workflow?: string,
 ) {
   const r = await act(pid, key, `address:${threadId}`, () =>
-    reviewApi.address(pid, key, threadId, note),
+    reviewApi.address(pid, key, threadId, note, workflow),
   );
   if (r) set(pid, key, { ai: r.state });
   return r;

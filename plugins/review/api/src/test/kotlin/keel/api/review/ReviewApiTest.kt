@@ -55,7 +55,7 @@ class ReviewApiTest : ApiTest() {
         hosts.reset()
         runCatching { delete("/api/gitlab") }
         engine.helperSessions.clear()
-        engine.extraTemplates.removeIf { it["id"] == "small" }
+        engine.extraTemplates.removeIf { it["id"] == "small" || it["id"] == "address" }
         engine.askAnswer = null
         put("/api/review/settings", SETTINGS.associateWith { null }).andExpect(status().isOk)
     }
@@ -628,7 +628,7 @@ class ReviewApiTest : ApiTest() {
         assertThat(d["judge_token_cap"].asInt()).isEqualTo(25_000)
         assertThat(d["judge_allow_harder"].asBoolean()).isTrue()
         assertThat(d["judge_workflow"].asText()).isEqualTo("review")
-        assertThat(d["address_workflow"].asText()).isEqualTo("small")
+        assertThat(d["address_workflow"].asText()).isEqualTo("address")       // 0.18.56 implement, then test
         assertThat(d["thread_buttons"].size()).isZero()
         // keel-wide medium, this project high; the other project follows keel-wide
         put("/api/review/settings", mapOf("judge_effort" to "medium")).andExpect(status().isOk)
@@ -730,9 +730,9 @@ class ReviewApiTest : ApiTest() {
     }
 
     @Test
-    fun `Address it starts a small flow with the thread as its request, on the pull request's branch, and pushes nothing`() {
-        // keel's small workflow, as the engine lists it (the stub has only a few templates)
-        engine.extraTemplates += engine.featureTemplate + mapOf("id" to "small", "name" to "small (keel)")
+    fun `Address it starts the address flow with the thread as its request, on the pull request's branch, and pushes nothing`() {
+        // keel's address workflow, as the engine lists it (the stub has only a few templates)
+        engine.extraTemplates += engine.featureTemplate + mapOf("id" to "address", "name" to "address (keel)")
         val (pid, root) = githubPr()
         val tid = threadId(pid)
         Files.writeString(root.resolve("notes.txt"), "mine\n")
@@ -751,7 +751,8 @@ class ReviewApiTest : ApiTest() {
         assertThat(r["state"]["addressed"][tid]["flow_id"].asText()).isEqualTo("t-stub-1")
         assertThat(git(root, "branch", "--show-current").trim()).isEqualTo("feat/paging")
         val start = engine.lastBody("/threads")!!
-        assertThat(start["workflow"]["id"].asText()).isEqualTo("small")
+        assertThat(start["workflow"]["id"].asText()).isEqualTo("address")
+        assertThat(r["workflow"].asText()).isEqualTo("address")
         assertThat(start["request"].asText()).contains("pull request #7").contains("src/Prefs.kt:6").contains("bo: Should 20 come from config?")
             .contains("not instructions").contains("Do not push").contains("read PagingProperties")
         assertThat(engine.calls.count { it.path.contains("push") }).isEqualTo(pushesBefore)
@@ -761,6 +762,23 @@ class ReviewApiTest : ApiTest() {
         // a second flow cannot start in the folder while this one runs
         val busy = post("/api/projects/$pid/review/threads/$tid/address", mapOf("key" to "pr:7")).andExpect(status().isConflict).json()
         assertThat(busy["error"].asText()).contains("already runs")
+    }
+
+    @Test
+    fun `Address it offers the project's flows and runs the one the person picks, a feature flow for a big comment`() {
+        engine.extraTemplates += engine.featureTemplate + mapOf("id" to "address", "name" to "address (keel)")
+        val (pid, _) = githubPr()
+        val tid = threadId(pid)
+        val flows = get("/api/projects/$pid/review/ai?key=pr:7").json()["config"]["address_flows"].map { it["id"].asText() }
+        assertThat(flows.first()).isEqualTo("address")                                        // the default first
+        assertThat(flows).contains("feature").doesNotContain("small")                          // only flows the project has
+        val bad = post("/api/projects/$pid/review/threads/$tid/address", mapOf("key" to "pr:7", "workflow" to "nope"))
+            .andExpect(status().isBadRequest).json()
+        assertThat(bad["error"].asText()).contains("no workflow called \"nope\"")
+        val r = post("/api/projects/$pid/review/threads/$tid/address", mapOf("key" to "pr:7", "workflow" to "feature"))
+            .andExpect(status().isOk).json()
+        assertThat(r["workflow"].asText()).isEqualTo("feature")
+        assertThat(engine.lastBody("/threads")!!["workflow"]["id"].asText()).isEqualTo("feature")
     }
 
     @Test

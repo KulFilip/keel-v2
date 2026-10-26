@@ -2,13 +2,7 @@
 // line, "new" since your last visit, keel's check with every verdict, Use as my reply (fills the box, posts nothing),
 // Address it (starts the flow), the extra buttons, the narrow layout, and the thread settings.
 
-import {
-  act,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it } from "vitest";
@@ -558,6 +552,50 @@ describe("the review threads", () => {
     expect(within(t1).getByText(/It pushes nothing/)).toBeInTheDocument();
   });
 
+  it("Address it runs the address flow by default and lets you pick another flow", async () => {
+    const ai = AI({
+      config: {
+        judge: {
+          mode: "quick",
+          workflow: "review",
+          allow_harder: true,
+          token_cap: 25000,
+          agent: "pr-reviewer",
+        },
+        address_workflow: "address",
+        address_flows: [
+          { id: "address", name: "address (keel)" },
+          { id: "feature", name: "feature (keel)" },
+        ],
+        buttons: [],
+      },
+    });
+    const { calls } = api(ai);
+    show(ai);
+    const t1 = card(/line 2–3/);
+    await userEvent.click(
+      within(t1).getByRole("button", { name: "✦ Address it" }),
+    );
+    const confirm = within(t1).getByRole("group", {
+      name: "Confirm Address it",
+    });
+    const pick = within(confirm).getByRole("combobox", {
+      name: "Flow for Address it",
+    });
+    expect(pick).toHaveValue("address");
+    expect(confirm).toHaveTextContent("starts the address flow");
+    await userEvent.selectOptions(pick, "feature");
+    expect(confirm).toHaveTextContent("starts the feature flow");
+    await userEvent.click(
+      within(confirm).getByRole("button", { name: "Start the flow" }),
+    );
+    await waitFor(() =>
+      expect(
+        calls.find((x) => x.path.endsWith("/threads/T1/address"))?.body,
+      ).toMatchObject({ key: KEY, workflow: "feature" }),
+    );
+  });
+
   it("draws the extra buttons from the settings and runs one", async () => {
     const { calls } = api();
     show(
@@ -756,7 +794,9 @@ describe("Settings › Code Review threads", () => {
     expect(
       screen.getByRole("option", { name: "ticket-reviewer (now pr-reviewer)" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "pr-reviewer" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", { name: "pr-reviewer" }),
+    ).toBeInTheDocument();
   });
 });
 
