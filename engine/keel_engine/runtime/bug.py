@@ -232,8 +232,10 @@ def bug_drop_red(a):
     bug = of(a.acs)
     if not bug or not git.is_repo(a.root):
         return _ok("no bug test to drop")
-    subject = git.git(a.root, "log", "-1", "--format=%s").stdout.strip()
-    if not subject.startswith(f"test({bug['id']})"):
+    from . import commit_style
+
+    subject, _, body = git.git(a.root, "log", "-1", "--format=%s%x1f%b").stdout.strip().partition("\x1f")
+    if not commit_style.ref_of(subject, body).startswith(f"test({bug['id']})"):
         return _ok(f"no test({bug['id']}) commit on top to drop; the reproducer tries again")
     if git.git(a.root, "rev-parse", "--verify", "-q", "HEAD~1").returncode != 0:
         return _ok("the red commit is the first commit; it stays")

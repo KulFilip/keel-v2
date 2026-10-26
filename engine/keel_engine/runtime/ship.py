@@ -358,6 +358,16 @@ def skip_payload(payload: dict, names: list[str] | set[str] | None = None) -> di
     return {**payload, "skip": {**skip, **have}}
 
 
+def base_warning(root: str) -> str | None:
+    """The base drift line (verdict_actions.base_drift) after a fetch, or None; never raises."""
+    try:
+        cfg = rules.load_config(root)
+        verdict_actions.fetch_base(root, cfg)
+        return verdict_actions.base_drift(root, cfg)
+    except Exception:            # noqa: BLE001 - a warning never stops the ship
+        return None
+
+
 def names_skip(payload: dict) -> set[str] | None:
     """The step names an answer asks to skip (an empty set: it says skip nothing), or None when it says nothing about
     skipping at all (no answers.skip, no skip)."""

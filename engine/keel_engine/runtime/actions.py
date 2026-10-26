@@ -31,6 +31,7 @@ from . import choices as choices_mod
 from . import bug as bug_mod
 from . import feature_actions, flow_actions, knowledge, lint_actions, ship, verdict_actions, verdicts
 from . import test_scope
+from . import commit_style
 from . import tools as tool_runner
 from . import ladder as run_ladder
 
@@ -91,6 +92,7 @@ class ActionInput:
     params: dict = field(default_factory=dict)         # a part's step `with:` (plugins/db, plugins/git ...)
     event: object = None                               # an add-on action's own events: event(kind, data), kind "<addon>.*"
     progress: object = None                            # 0.18.15 a code step's live job: progress(text, **fields) adds a step
+    marker: str = ""                                   # 0.18.57 commit: keel's own path that made it (already-met): a Keel-Path line
 
     @property
     def key(self) -> str:
@@ -684,6 +686,8 @@ def commit(a: ActionInput) -> ActionResult:
             "type": "readonly", "kind": "fix", "title": "Read-only run: the commit is refused", "detail": detail,
             "labels": {"approve": "Try the commit again", "reject": "Stop the flow"}})
     ctype = rules.commit_type_for(a.phase)
+    if a.marker == "already-met":
+        ctype = "red"               # 0.18.57 the criterion's test, committed as test(<AC>) whatever the phase says
     paths = a.paths
     lay = layout.resolve(a.root)
     if lay.hidden and paths:
@@ -790,9 +794,30 @@ def commit(a: ActionInput) -> ActionResult:
     tag = f" [{ticket}]" if ticket else ""
     # 0.18.56 an ac commit (quick, address) that holds test files only is a test change: "test(...)", not "feat(...)"
     only_tests = ctype == "ac" and bool(buckets) and all(b in test_scope.TEST_BUCKETS for _f, b in buckets)
-    message, body = commit_message(rules.commit_prefix("red" if only_tests else ctype, ident), subject, 72 - len(tag))
-    if ticket and ticket not in message:
-        message += tag
+    prefix = rules.commit_prefix("red" if only_tests else ctype, ident)
+    keel_lines: list[str] = []
+    # 0.18.57 the project's commit style (git.commit_template, else inferred from the branch's recent commits); keel's
+    # own form then goes to a Keel-Ref trailer, which the trace and the audit read
+    tpl, _src = commit_style.template(a.root, cfg)
+    if tpl:
+        kind = commit_style.conventional_type("red" if only_tests else ctype, [b for _f, b in buckets], staged, a.flow,
+                                              refactor=bool(a.ac and test_scope.is_refactor(a.ac)))
+        line = commit_style.render(tpl, kind, ident or prefix.partition("(")[2].rstrip(")"), " ".join(str(subject).split()),
+                                   ticket)
+        message, body = commit_style.fit(line, 72)
+        if not message.startswith(prefix + ":"):
+            keel_lines.append(f"{commit_style.REF}: {prefix}")
+    else:
+        message, body = commit_message(prefix, subject, 72 - len(tag))
+        if ticket and ticket not in message:
+            message += tag
+    if a.marker:
+        keel_lines.append(f"{commit_style.PATH}: {a.marker}")
+    # test files an unlock opened for this phase (keel's own after a criterion broke tests outside it, or a person's):
+    # the ship audit reads this line instead of calling the commit an implementation commit with tests in it
+    opened = [f for f, b in buckets if b in test_scope.TEST_BUCKETS and rules.unlocked(a.unlocks, f, a.phase)]
+    if opened and ctype not in ("red", "coverage", "smoke", "e2e") and not only_tests:
+        keel_lines.append(f"{commit_style.UNLOCKED}: {', '.join(opened)}")
     if found and ctype == "fix" and a.phase == "bug-fix":
         # keel v1 fix.md: the root cause goes in the body, not just the subject
         body = "\n\n".join(x for x in (body, bug_mod.commit_body(a)) if x)
@@ -802,6 +827,9 @@ def commit(a: ActionInput) -> ActionResult:
         # the [E2E] / [SMOKE] criteria these tests cover: the trace finds them here (verdict_actions.trace_rows)
         extra += ["-m", "Covers: " + ", ".join(scope["covers"])]
     ident, trailer = commit_args(a.root, a.settings, cfg)
+    if keel_lines:
+        # one last paragraph: keel's lines with the co-author line (git reads them as trailers together)
+        trailer = ["-m", "\n".join(keel_lines + trailer[1:])]
     r = git.git(a.root, *ident, "commit", "-q", "-m", message, *extra, *trailer)
     if r.returncode != 0:
         git.git(a.root, "reset", "-q")
@@ -901,18 +929,16 @@ def ticket_key(a: ActionInput) -> str | None:
     if TICKET.match(given):
         return given.upper()
     m = _TITLE_TICKET.match(a.title or "")
-    return m.group(1) if m else None
+    if m:
+        return m.group(1)
+    # 0.18.57 else the branch name (feature/SHOPS-1234-euro-prices)
+    return commit_style.ticket_from_branch(git.branch(a.root)) if git.is_repo(a.root) else None
 
 
 def commit_message(prefix: str, subject: str, limit: int = 72) -> tuple[str, str]:
-    """A short subject line (whole words, at most `limit` chars) and the full criterion as the body when it was cut."""
-    text = " ".join(str(subject).split())
-    first = f"{prefix}: {text}"
-    if len(first) <= limit:
-        return first, ""
-    room = limit - len(prefix) - 3
-    cut = text[:room].rsplit(" ", 1)[0].rstrip(",;:.") or text[:room]
-    return f"{prefix}: {cut}…", text
+    """A short subject line (whole words, at most `limit` chars) and, when it was cut, the rest of the criterion as the
+    body ("…" and the words that did not fit): 0.18.57 the body never repeats the subject."""
+    return commit_style.fit(f"{prefix}: {' '.join(str(subject).split())}", limit)
 
 
 def revert_manifests(root: str, files: list[str]):

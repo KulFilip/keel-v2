@@ -347,6 +347,12 @@ class GateMixin:
         reason; skips land in data.ship_skipped (the PR body and the final review show them) and the gate log."""
         units = ship_mod.skip_units(self.wf.steps, i)
         detail = ship_mod.skip_menu_detail(self.wf.steps, i)
+        if step.phase == "ship":
+            # 0.18.57 before ship: a local base behind or diverged from its remote is said first (keel compares with
+            # the remote one; the audit once read upstream commits as this branch's)
+            drift = ship_mod.base_warning(self.ctx.root)
+            if drift:
+                detail = f"Note: {drift}.\n\n{detail}"
         title, extra_all = step.name, {}
         mode_payload: dict = {}
         folded = self._folded_answer(i, state)
@@ -402,7 +408,12 @@ class GateMixin:
             said = (answer.get("why") or "").strip()
             if said and not got.get("reason"):
                 got = {**got, "reason": said}           # 0.18.57 the answer's why is the shared reason of its skips
-            skips, lenses, problem = ship_mod.parse_skips(ship_mod.skip_payload(got, names), units)
+            later = {u["name"] for j in self._menu_steps(-1) for u in ship_mod.skip_units(self.wf.steps, j)} - set(names)
+            parsed = ship_mod.skip_payload(got, [*names, *later])
+            if isinstance(parsed.get("skip"), dict) and later:
+                # a later menu's steps (ship's) named here are asked at that menu, not refused as unknown here
+                parsed = {**parsed, "skip": {k: v for k, v in parsed["skip"].items() if k not in later}}
+            skips, lenses, problem = ship_mod.parse_skips(parsed, units)
             if not problem and refused and ship_mod.names_skip(got) is None:
                 # 0.18.57 an answer refused for a skip without a reason, then one that says nothing about skipping:
                 # never read as "run every step" (an approve with no payload ran the steps the person wanted skipped)
@@ -410,7 +421,8 @@ class GateMixin:
                            "with skip: [] to run every step")
             if not problem:
                 break
-            refused = refused or sorted(ship_mod.names_skip(got) or [])
+            if "needs a reason" in problem:
+                refused = refused or sorted((ship_mod.names_skip(got) or set()) - later)
             title = f"{step.name}: {problem}"
         why = (answer.get("why") or "").strip()
         data = dict(state.get("data") or {})
