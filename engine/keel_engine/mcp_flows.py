@@ -40,6 +40,17 @@ ABOUT = {
     "clarify": "ask before you code: task type, sections, rounds of questions; a spec-format document with criteria, "
                "a definition of done and a prompt; hands over to the flow that fits",
 }
+# B13a flows that build nothing read no request (init, a review, a ship ...): they start without one, like the
+# dashboard's Start a flow, which hides "What to build" for them (web/src/components/StartFlow.tsx NO_BUILD)
+NO_REQUEST = frozenset({"review", "cover", "ship", "lint", "hunt", "hunt-next", "init", "knowledge-refresh"})
+
+
+def reads_request(w: dict | None, type: str) -> bool:
+    """Whether a flow needs the person's request: not one of NO_REQUEST, nor a flow based on one of them."""
+    based = str((w or {}).get("based_on") or "").removeprefix("keel/")
+    return type not in NO_REQUEST and based not in NO_REQUEST
+
+
 # the inputs keel_start_flow takes by name (they go to the flow as its options, the same as the dashboard's form)
 NAMED_INPUTS = ("ticket", "pr")
 INPUT_LINE = re.compile(r"^#\s{2,4}([a-z][\w-]*(?:,\s*[a-z][\w-]*)*)(?::\s*|\s{2,})(.*)$")
@@ -120,7 +131,10 @@ def start_body(type: str, title: str | None, request: str, ticket: str | None = 
         options["ticket"] = ticket
     if pr:
         options["pr"] = pr
-    return {"workflow_id": type, "title": title, "request": request or title, "options": options}
+    body = {"workflow_id": type, "title": title, "request": request or title, "options": options}
+    if not request and not (ticket or pr):
+        del body["request"]          # B13a a flow that reads no request (init) gets none, not its title as one
+    return body
 
 
 # ---------------------------------------------------------------- pause

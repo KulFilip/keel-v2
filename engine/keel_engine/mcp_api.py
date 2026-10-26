@@ -162,6 +162,60 @@ def _flow(api: KeelApi, pid: str) -> tuple[dict | None, dict | None]:
     return view.get("thread"), view.get("workflow")
 
 
+def _waits(thread: dict | None) -> bool:
+    return bool(thread and thread.get("status") == "waiting" and thread.get("waiting"))
+
+
+def _flow_of(api: KeelApi, pid: str, tid: str) -> dict | None:
+    """One flow of the project by its thread id (GET /projects/{pid}/flows/{tid}); None when the project has no such
+    flow. The api has no GET /threads/{id}: that is the engine's route."""
+    try:
+        return (api.get(f"/projects/{q(pid)}/flows/{q(tid)}") or {}).get("thread")
+    except ApiError as exc:
+        if exc.status == 404:
+            return None
+        raise
+
+
+def _inbox(api: KeelApi, pid: str | None = None) -> list[dict]:
+    """The Inbox's items (of one project); none when the api cannot list them (the lookups then work as before)."""
+    try:
+        return (api.get("/inbox", project=pid) or {}).get("items") or []
+    except ApiError:
+        return []
+
+
+def waiting_thread(api: KeelApi, project: str | None = None, thread_id: str | None = None) -> tuple[dict | None, str]:
+    """(the waiting flow an answer is for, "") or (None, why there is none; "" when nothing waits at all).
+
+    The project's Flow page shows one flow (its folder's newest), so a worktree flow, or a flow started after another,
+    waits where /projects/{pid}/flow does not look. thread_id: that flow, in the project the Inbox lists it under (else
+    the project as the tool finds it). No thread_id: the project's current flow when it waits, else the one flow of the
+    project the Inbox lists as waiting; several: none is picked, they are named."""
+    if thread_id:
+        items = _inbox(api)
+        pid = next((i["project_id"] for i in items if i.get("thread_id") == thread_id and i.get("project_id")), None)
+        pid = pid or _project(api, project)["id"]
+        thread = _flow_of(api, pid, thread_id)
+        if thread is None:
+            return None, f"no flow {thread_id} on {pid}."
+        return (thread, "") if _waits(thread) else (None, f"thread {thread_id} waits for nothing.")
+    pid = _project(api, project)["id"]
+    thread, _ = _flow(api, pid)
+    if _waits(thread):
+        return thread, ""
+    items = _inbox(api, pid)
+    tids = list(dict.fromkeys(i["thread_id"] for i in items if i.get("thread_id") and i.get("project_id") in (None, pid)
+                              and not (i.get("task") or i.get("permission") or i.get("payload"))))
+    found = [t for t in (_flow_of(api, pid, tid) for tid in tids) if _waits(t)]
+    if len(found) == 1:
+        return found[0], ""
+    if found:
+        return None, (f"{len(found)} flows wait on {pid}; pass thread_id for the one to answer:\n" + "\n".join(
+            f"- {t.get('thread_id')}  \"{t.get('title')}\": {(t.get('waiting') or {}).get('title')}" for t in found))
+    return None, ""
+
+
 def _n(x: Any) -> str:
     try:
         return f"{int(x or 0):,}"

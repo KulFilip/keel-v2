@@ -289,9 +289,11 @@ class FlowService(
         if (title.isBlank()) throw BadRequest("Give the flow a title", "One short line: what should this flow build or fix?")
         cap?.check()
         var start = buildStart(pid, workflowId, title, acs, cap, model)
+        // B7 a start that named no branch mode: ship and the other flows that finish the folder's branch continue it
+        val mode = if (branch == DEFAULT_BRANCH) defaultBranch(workflowId, start.workflow.basedOn) else branch
         val root = Paths.get(start.root)
         refuseFake(start, root, allowFake)
-        if (force == false) refuseOwners(pid, root, title, request, options, if (branch == "continue") projects.branch(root) else null)
+        if (force == false) refuseOwners(pid, root, title, request, options, if (mode == "continue") projects.branch(root) else null)
         // 0.18.57 a read-only flow (review, review-pr: every step in a phase that may edit nothing) reads refs and works
         // in throwaway worktrees the engine removes: it never gets a branch or a worktree of its own, never checks
         // anything out in the person's folder and does not mind their uncommitted files (keel 0.18.56 made and checked
@@ -306,7 +308,7 @@ class FlowService(
             refuseDirty(root, allowDirty)
             // an add-on's flow that only writes its own documents (keel Product) stays on the branch it is on, and so
             // does a workflow that says `own_branch: false` (0.18.57 hunt: a report needs no branch; hunt-next hands over)
-            if (ownBranch && wantsOwnBranch(start.workflow)) madeBranch = ownBranch(pid, root, title, workflowId, branch)
+            if (ownBranch && wantsOwnBranch(start.workflow)) madeBranch = ownBranch(pid, root, title, workflowId, mode)
         } else {
             start = start.copy(root = wt.path)
         }
@@ -539,7 +541,9 @@ class FlowService(
         var n = 2
         while (workspace.git(root, "rev-parse", "--verify", "--quiet", "refs/heads/$branch").ok) branch = "$first-${n++}"
         val name = "flow-${Slug.of(title).take(30)}-${java.util.UUID.randomUUID().toString().take(6)}"
-        val res = engine.post("/worktrees", mapOf("root" to root.toString(), "name" to name, "branch" to branch, "start" to workspace.base(root)))
+        // B7 from origin/<base> when the local base is behind it
+        val res = engine.post("/worktrees", mapOf("root" to root.toString(), "name" to name, "branch" to branch,
+            "start" to workspace.base(root)?.let { freshBase(root, it) }))
         return FlowWorktree(name, res.path("branch").asText(branch), res.path("path").asText())
     }
 
@@ -594,24 +598,47 @@ class FlowService(
 
     /**
      * The flow's own branch in the project folder. On the base branch it always gets one (feat/{slug}). On another branch
-     * [mode] decides: "new" (the start dialog, Tasks, MCP and the TUI by default) makes one from the base branch, so a
-     * flow never stacks its commits on what another flow (or init) left checked out; "continue" (the person picked
-     * "Continue this branch") and null (a caller that put the branch there itself: CI fix, review address) stay.
+     * [mode] decides: "new" (Tasks, and by default the start dialog, MCP and the TUI for a flow that builds something)
+     * makes one from the base branch, so a flow never stacks its commits on what another flow (or init) left checked
+     * out; "continue" (the person picked "Continue this branch", or B7 by default ship, cover, review, lint, address)
+     * and null (a caller that put the branch there itself: CI fix, review address) stay.
      */
     private fun ownBranch(pid: String, root: Path, title: String, workflowId: String, mode: String? = null): MadeBranch? {
         if (isDemo(root)) return null
         val current = workspace.git(root, "rev-parse", "--abbrev-ref", "HEAD").takeIf { it.ok }?.out?.trim() ?: return null
         val base = workspace.base(root) ?: return null
-        val fromBase = current != base
-        if (fromBase && mode != "new") return null
-        val tip = workspace.git(root, "rev-parse", if (fromBase) "refs/heads/$base" else "HEAD").takeIf { it.ok }?.out?.trim() ?: return null
+        val offBase = current != base
+        if (offBase && mode != "new") return null
+        // B7 a new branch starts from the base, and never from a local base that is behind origin's (a pull not made
+        // yet): on the base itself too, unless the flow continues the base's own commits ("continue")
+        val from = if (offBase || mode == "new") freshBase(root, base) else null
+        val tip = workspace.git(root, "rev-parse", from?.let { "$it^{commit}" } ?: "HEAD").takeIf { it.ok }?.out?.trim() ?: return null
         val first = branchName(settings.effective(pid).branchPattern, title, workflowId)
         var name = first
         var n = 2
         while (workspace.git(root, "rev-parse", "--verify", "--quiet", "refs/heads/$name").ok) name = "$first-${n++}"
-        val r = if (fromBase) workspace.git(root, "checkout", "-q", "-b", name, base) else workspace.git(root, "checkout", "-q", "-b", name)
-        if (!r.ok) throw Conflict("Could not create the branch $name" + (if (fromBase) " from $base" else ""), r.err.ifBlank { r.out }.take(300))
+        // --no-track: a branch from origin/<base> must not push to (or count itself against) the base
+        val r = if (from != null) workspace.git(root, "checkout", "-q", "--no-track", "-b", name, from)
+            else workspace.git(root, "checkout", "-q", "-b", name)
+        if (!r.ok) throw Conflict("Could not create the branch $name" + (from?.let { " from $it" } ?: ""), r.err.ifBlank { r.out }.take(300))
         return MadeBranch(name, current, tip)
+    }
+
+    /**
+     * B7 where a new branch starts: the local [base], or origin/<base> when the local one is only behind it (its
+     * commits are all in origin's: a pull not made yet). A local base that went its own way (commits on both sides)
+     * is refused: keel does not guess which one has the work. Nothing is fetched: origin is as the last fetch left it.
+     */
+    private fun freshBase(root: Path, base: String): String {
+        val local = "refs/heads/$base"
+        val remote = "refs/remotes/origin/$base"
+        if (!workspace.git(root, "rev-parse", "--verify", "--quiet", remote).ok) return base
+        val behind = workspace.gitOut(root, "rev-list", "--count", "$local..$remote")?.toIntOrNull() ?: return base
+        if (behind == 0) return base
+        val ahead = workspace.gitOut(root, "rev-list", "--count", "$remote..$local")?.toIntOrNull() ?: 0
+        if (ahead > 0) throw Conflict("The local $base and origin/$base went their own ways ($ahead and $behind commits)",
+            "Pull (or rebase) $base first, so the flow's new branch starts from the latest code; or continue on the branch the folder is on.")
+        return "origin/$base"
     }
 
     /**
@@ -960,6 +987,21 @@ class FlowService(
 
 /** v0.15.4 A flow that is not deleted from the history (a flow that runs or waits always shows). */
 private const val SHOWN = "(hidden_at IS NULL OR status IN ('running','waiting'))"
+
+/**
+ * B7 flows that finish the work on the branch the folder is on (ship it, cover it, review it, lint it, address a comment
+ * on it): started with no branch choice they continue that branch. A new branch from the base would leave the work
+ * behind (a ship of an empty diff). Every other flow gets a new branch from the base by default (B8).
+ */
+val CONTINUE_FLOWS = setOf("ship", "cover", "review", "lint", "address")
+
+/** POST /flows with no branch mode (the dashboard, MCP keel_start_flow, the TUI): [defaultBranch] picks it. */
+const val DEFAULT_BRANCH = "default"
+
+/** The branch mode of a start that named none ([DEFAULT_BRANCH]): continue for [CONTINUE_FLOWS] and a flow based on
+ *  one of them, else new. */
+fun defaultBranch(workflowId: String, basedOn: String?): String =
+    if (workflowId in CONTINUE_FLOWS || basedOn?.removePrefix("keel/") in CONTINUE_FLOWS) "continue" else "new"
 
 data class UnlockResult(val unlocks: List<Any?>, val via: String, val threadId: String?)
 

@@ -102,6 +102,7 @@ class StubApi:
         routes = {
             "/api/projects": PROJECTS,
             "/api/projects/shop/flow": {"thread": self.thread, "workflow": {"id": "feature", "name": "Feature"}},
+            "/api/projects/shop/flows/t-1": {"thread": self.thread, "workflow": {"id": "feature", "name": "Feature"}},
             "/api/projects/blog/flow": {"thread": None, "workflow": None},
             "/api/threads/t-1/history": HISTORY,
             "/api/jobs": JOBS,
@@ -484,6 +485,43 @@ def test_start_flow_refuses_an_unknown_type_and_an_empty_idea(stub):
     with _pytest.raises(mcp_server.ApiError, match="the request is empty"):
         mcp_server.start_flow(stub.api, "feature", "  ", sleep=lambda s: None)
     assert not stub.posts
+
+
+async def test_start_flow_needs_no_request_for_a_flow_that_reads_none(stub, monkeypatch):
+    """B13a keel_start_flow(type='init') said "the request is empty": init (and ship, lint, a flow based on them ...)
+    reads no request. It starts with the flow's id as its title and no request; a flow that builds something still asks."""
+    import pytest as _pytest
+
+    flows = [{"id": "feature"}, {"id": "init"}, {"id": "ship"}, {"id": "my-setup", "based_on": "keel/init"}]
+    real = stub.__call__
+
+    def route(req):
+        if req.method == "GET" and req.url.path == "/api/projects/shop/workflows":
+            return httpx.Response(200, json=flows)
+        return real(req)
+    stub.api = mcp_server.KeelApi("http://keel.test", transport=httpx.MockTransport(route))
+    srv = mcp_server.build_server(write=True, api=stub.api)
+    text = await call(srv, "keel_start_flow", {"type": "init"})
+    assert "started init" in text
+    assert stub.posts[-1][1] == {"workflow_id": "init", "title": "init", "options": {"started_via": "mcp"}}
+    for wf in ("ship", "my-setup"):
+        mcp_server.start_flow(stub.api, wf, None, sleep=lambda s: None, wait=0)
+        assert stub.posts[-1][1]["workflow_id"] == wf and "request" not in stub.posts[-1][1]
+    n = len(stub.posts)
+    with _pytest.raises(mcp_server.ApiError, match="the request is empty"):
+        mcp_server.start_flow(stub.api, "feature", None, sleep=lambda s: None)
+    assert len(stub.posts) == n
+
+
+async def test_start_flow_leaves_the_branch_to_the_api_unless_one_is_named(stub):
+    """B7 keel_start_flow sent nothing and the api made every flow a new branch from the (stale) base, so a ship lost
+    the work. It still sends nothing by default (the api continues the branch for ship, cover, review, lint, address),
+    and passes branch new or continue when the person named one."""
+    srv = mcp_server.build_server(write=True, api=stub.api)
+    await call(srv, "keel_start_flow", {"type": "feature", "idea": "Player scores"})
+    assert "branch" not in stub.posts[-1][1]
+    await call(srv, "keel_start_flow", {"type": "feature", "idea": "Player scores", "branch": "continue"})
+    assert stub.posts[-1][1]["branch"] == "continue"
 
 
 # ---------------------------------------------------------------- v0.16.0 levels, allowlist, confirm, audit

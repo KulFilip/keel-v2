@@ -28,14 +28,12 @@ TRIAGE = choices.for_question({"step": "triage", "kind": "gate", "title": "triag
 
 
 class Recorder(StubApi):
-    """The stub api plus the Inbox's act route and GET /threads/t-1."""
+    """The stub api plus the Inbox's act route."""
 
     def __call__(self, req):
         if req.method == "POST" and req.url.path == "/api/inbox/t-1/act":
             self.posts.append((req.url.path, json.loads(req.content)))
             return httpx.Response(200, json={**self.thread, "status": "running", "waiting": None})
-        if req.method == "GET" and req.url.path == "/api/threads/t-1":
-            return httpx.Response(200, json=self.thread)
         return super().__call__(req)
 
 

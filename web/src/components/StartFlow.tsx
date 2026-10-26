@@ -66,7 +66,12 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
   // gets its own branch from the base unless the person keeps working on that one (a flow from a spec: its branch)
   const onBranch = projects.find((x) => x.id === p)?.branch ?? "";
   const offBase = !!onBranch && !BASES.has(onBranch) && !isDemo;
-  const [branchMode, setBranchMode] = useState<"new" | "continue">(spec ? "continue" : "new");
+  // B7 ship, cover, review, lint and address finish the work on the folder's branch: they continue it unless the person
+  // picks a new one (a new branch from the base would ship an empty diff); the person's pick lasts until the flow changes
+  const finishes = finishesBranch(wfs?.find((w) => w.id === wid) ?? { id: wid });
+  const [branchPick, setBranchPick] = useState<"new" | "continue" | null>(spec ? "continue" : null);
+  useEffect(() => { if (!spec) setBranchPick(null); }, [wid, spec]);
+  const branchMode = branchPick ?? (finishes ? "continue" : "new");
   // 0.18.57 a KeelBot Ask or Edit chat reads the project folder: a flow on its own branch would check that branch out
   // under it. Its own copy (a worktree) is recommended, unless the tests cannot run there (the engine's start check)
   const [activity, setActivity] = useState<FolderActivity | null>(null);
@@ -219,7 +224,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
         ...(wid === "lint" ? { options: { scope: lintScope } } : spec ? { options: { spec: spec.path } } : {}),
         // 0.18.57 auto with a chat in the folder: the worktree this form recommends (the api's auto knows only flows)
         ...(where !== "auto" ? { where } : inWorktree && !folderBusy ? { where: "worktree" as const } : {}),
-        ...(!inWorktree && offBase && branchMode === "continue" ? { branch: "continue" as const } : {}),
+        ...(!inWorktree && offBase ? { branch: branchMode } : {}),
         ...(force ? { force: true } : {}),
       });
       if (p !== pid) setProjectId(p);
@@ -314,11 +319,13 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
       {!inWorktree && offBase && (
         <div className="field">
           <label htmlFor="sf-branch">Branch</label>
-          <select id="sf-branch" value={branchMode} onChange={(e) => setBranchMode(e.target.value as "new" | "continue")}>
-            <option value="new">A new branch from the base branch (recommended)</option>
-            <option value="continue">Continue {onBranch}</option>
+          <select id="sf-branch" value={branchMode} onChange={(e) => setBranchPick(e.target.value as "new" | "continue")}>
+            <option value="new">A new branch from the base branch{finishes ? "" : " (recommended)"}</option>
+            <option value="continue">Continue {onBranch}{finishes ? " (recommended)" : ""}</option>
           </select>
-          <span className="hint">The project folder is on <b className="mono">{onBranch}</b>. A new branch starts from the base branch, so this flow's commits do not stack on that one.</span>
+          <span className="hint">The project folder is on <b className="mono">{onBranch}</b>. {finishes
+            ? `${wid} works on that branch's commits: a new branch from the base branch would leave them out.`
+            : "A new branch starts from the base branch, so this flow's commits do not stack on that one."}</span>
         </div>
       )}
       <div className="field">
@@ -469,6 +476,10 @@ function ProjectCaps({ left }: { left: CapsLeft }) {
 /** Templates that build nothing, so "what to build" is optional for them. */
 const BASES = new Set(["main", "master"]);
 const NO_BUILD = new Set(["review", "cover", "ship", "lint", "hunt", "hunt-next", "init", "knowledge-refresh"]);
+/** B7 the flows that finish the folder's branch (the api's CONTINUE_FLOWS): they continue it by default. */
+const CONTINUE_FLOWS = new Set(["ship", "cover", "review", "lint", "address"]);
+const finishesBranch = (w: { id: string; based_on?: string | null }) =>
+  CONTINUE_FLOWS.has(w.id) || CONTINUE_FLOWS.has((w.based_on ?? "").replace(/^keel\//, ""));
 
 /** The plan's use in words: the provider's own percentage when known, else against the cap you set, else just tokens.
  * (A missing cap once divided 3.7M tokens by 1 and showed "376640900% used".) */

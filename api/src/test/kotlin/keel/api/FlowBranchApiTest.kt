@@ -141,6 +141,93 @@ class FlowBranchApiTest : ApiTest() {
         assertThat(git(root, "rev-parse", "--abbrev-ref", "HEAD").trim()).isEqualTo("feat/my-work")
     }
 
+    private fun <T> withFlow(id: String, body: () -> T): T {
+        val wf = engine.featureTemplate + mapOf("id" to id, "name" to "$id (keel)")
+        engine.extraTemplates += wf
+        try {
+            return body()
+        } finally {
+            engine.extraTemplates -= wf
+        }
+    }
+
+    /** A feature branch with a commit of its own: the work a ship (cover, review, lint, address) flow finishes. */
+    private fun onFeatureBranch(name: String): Pair<String, java.nio.file.Path> {
+        val (pid, root) = newProject(name)
+        git(root, "checkout", "-q", "-b", "feat/coupons")
+        java.nio.file.Files.writeString(root.resolve("coupons.txt"), "coupons\n")
+        git(root, "add", "coupons.txt"); git(root, "commit", "-q", "-m", "feat: coupons")
+        return pid to root
+    }
+
+    /** origin/main one commit ahead of the local main (a pull not made yet). */
+    private fun originAhead(root: java.nio.file.Path) {
+        git(root, "checkout", "-q", "-b", "tmp-origin", "main")
+        java.nio.file.Files.writeString(root.resolve("team.txt"), "the team's latest\n")
+        git(root, "add", "team.txt"); git(root, "commit", "-q", "-m", "feat: the team's latest")
+        git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+        git(root, "checkout", "-q", "-")
+        git(root, "branch", "-q", "-D", "tmp-origin")
+    }
+
+    @Test
+    fun `B7 ship started with no branch choice continues the branch the folder is on`() = withFlow("ship") {
+        for (wf in listOf("ship", "feature")) {
+            val (pid, root) = onFeatureBranch("ship-continues-$wf")
+            val body = mapOf("workflow_id" to wf, "title" to "Ship the coupons", "allow_fake" to true)
+            post("/api/projects/$pid/flows", body).andExpect(status().isOk)
+            val head = git(root, "rev-parse", "--abbrev-ref", "HEAD").trim()
+            if (wf == "ship") {
+                assertThat(head).isEqualTo("feat/coupons")
+                assertThat(java.nio.file.Files.exists(root.resolve("coupons.txt"))).isTrue()
+            } else {
+                assertThat(head).isEqualTo("feat/ship-the-coupons")       // a flow that builds something: new, as B8
+            }
+        }
+    }
+
+    @Test
+    fun `B7 ship asked for a new branch still gets one`() = withFlow("ship") {
+        val (pid, root) = onFeatureBranch("ship-new")
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to "ship", "title" to "Ship it", "allow_fake" to true, "branch" to "new"))
+            .andExpect(status().isOk)
+        assertThat(git(root, "rev-parse", "--abbrev-ref", "HEAD").trim()).isEqualTo("feat/ship-it")
+    }
+
+    @Test
+    fun `B7 a new branch starts from origin's base when the local base is behind it`() {
+        val (pid, root) = onFeatureBranch("branch-from-origin")
+        originAhead(root)
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Basket totals", "allow_fake" to true))
+            .andExpect(status().isOk)
+        assertThat(git(root, "rev-parse", "--abbrev-ref", "HEAD").trim()).isEqualTo("feat/basket-totals")
+        assertThat(git(root, "rev-parse", "HEAD").trim()).isEqualTo(git(root, "rev-parse", "origin/main").trim())
+        // the flow's branch does not track origin/main: a push goes to its own name
+        assertThat(git(root, "branch", "-vv", "--list", "feat/basket-totals")).doesNotContain("[origin/main")
+    }
+
+    @Test
+    fun `B7 on a stale base the new branch starts from origin's base too`() {
+        val (pid, root) = newProject("base-behind")
+        originAhead(root)
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Basket totals", "allow_fake" to true))
+            .andExpect(status().isOk)
+        assertThat(git(root, "rev-parse", "HEAD").trim()).isEqualTo(git(root, "rev-parse", "origin/main").trim())
+    }
+
+    @Test
+    fun `B7 a local base that went its own way from origin is refused, not branched from`() {
+        val (pid, root) = onFeatureBranch("base-diverged")
+        originAhead(root)
+        git(root, "checkout", "-q", "main")
+        java.nio.file.Files.writeString(root.resolve("local.txt"), "local only\n")
+        git(root, "add", "local.txt"); git(root, "commit", "-q", "-m", "chore: local only")
+        git(root, "checkout", "-q", "feat/coupons")
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Basket totals", "allow_fake" to true))
+            .andExpect(status().isConflict)
+        assertThat(git(root, "rev-parse", "--abbrev-ref", "HEAD").trim()).isEqualTo("feat/coupons")
+    }
+
     @Test
     fun `B8 init that made no commit gives the folder back on the base branch`() {
         val init = engine.featureTemplate + mapOf("id" to "init", "name" to "init (keel)")

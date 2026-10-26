@@ -40,7 +40,8 @@ from pydantic import BaseModel, Field
 from . import extensions
 from . import mcp_ask as ask_mod
 from .addons import NAME
-from .mcp_api import API_TIMEOUT, MCP_TOKEN_HEADER, ApiError, KeelApi, _clock, _flow, _n, _project, _when, cut, internal_token
+from .mcp_api import (API_TIMEOUT, MCP_TOKEN_HEADER, ApiError, KeelApi, _clock, _flow, _n, _project, _when, cut, internal_token,
+                      waiting_thread)
 from .mcp_levels import (CONFIRM, CONFIRM_ACTIONS, LEVELS, MARKET_TOOLS, RANK, TOOLS, _Names, allowed, level, part_tools,
                          tool_level, write_mode)
 from .mcp_read import (BUCKET_TEXT, BUCKETS, DASHBOARD_VIEWS, GATE_PAGE, ORDER_FROM, STATUS_DETAIL, TIMELINE_FILTERS, _choice_lines,
@@ -58,7 +59,7 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
                wait: float = START_WAIT, allow_fake: bool = False, title: str | None = None, request: str | None = None,
                ticket: str | None = None, pr: str | None = None, inputs: dict | None = None,
                run_mode: str | None = None, allow_dirty: bool = False, ignore: list[str] | None = None,
-               force: bool = False) -> str:
+               force: bool = False, branch: str | None = None) -> str:
     """Start a flow through the dashboard's own endpoint (POST /api/projects/{id}/flows): the same guard, budget, run
     mode and records as a flow started in the web app. It runs until its first human gate, like any flow. No type:
     the flows the project can start, each with what it is for and its inputs."""
@@ -69,12 +70,14 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
     if not type:
         return first + mcp_flows.startable(api, p["id"])
     idea = (request or idea or "").strip()
-    if not idea and not (ticket or pr):
-        raise ApiError("the request is empty: say in a sentence or two what the flow should build or fix "
-                       "(or give the ticket / pr a flow like review-pr reads).")
-    known = [w.get("id") for w in mcp_flows.catalog(api, p["id"])]
+    flows = mcp_flows.catalog(api, p["id"])
+    known = [w.get("id") for w in flows]
     if known and type not in known:
         raise ApiError(f'no flow type "{type}".\n' + mcp_flows.startable(api, p["id"]))
+    wf = next((w for w in flows if w.get("id") == type), None)
+    if not idea and not (ticket or pr) and mcp_flows.reads_request(wf, type):
+        raise ApiError("the request is empty: say in a sentence or two what the flow should build or fix "
+                       "(or give the ticket / pr a flow like review-pr reads).")
     body = mcp_flows.start_body(type, title, idea, ticket, pr, inputs)
     title = body["title"]
     if allow_fake:
@@ -83,6 +86,11 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
         body["allow_dirty"] = True       # 0.18.57 like the web's "Start anyway" box
     if force:
         body["force"] = True             # 0.18.57 although another flow or side agent works on the same task
+    if branch:
+        # B7 none: the api picks (ship, cover, review, lint, address continue the folder's branch; others get a new one)
+        if branch not in ("new", "continue"):
+            raise ApiError("branch is new (a new branch from the base branch) or continue (the branch the folder is on).")
+        body["branch"] = branch
     ignored = []
     for path in ignore or []:
         # 0.18.57 "Ignore this path": an untracked path that is not the person's work goes to .git/info/exclude
@@ -164,13 +172,16 @@ def startable(api: KeelApi, project: str | None = None) -> str:
 
 def approve_gate(api: KeelApi, decision: str, project: str | None = None, why: str | None = None,
                  answers: dict[str, str | list[str]] | None = None, choice: str | None = None,
-                 question_id: str | None = None) -> str:
+                 question_id: str | None = None, thread_id: str | None = None) -> str:
     if decision not in ("approve", "reject"):
         raise ApiError("decision must be approve or reject")
-    p = _project(api, project)
-    thread, _ = _flow(api, p["id"])
-    if not thread or thread.get("status") != "waiting" or not thread.get("waiting"):
-        return f"nothing is waiting on {p['id']}: {next_action(api, p['id']).splitlines()[0]}"
+    # 0.18.57 a worktree flow, or one started after another, waits too: by thread_id, or the one the Inbox lists
+    thread, none = waiting_thread(api, project, thread_id)
+    if not thread:
+        if none:
+            return none
+        pid = _project(api, project)["id"]
+        return f"nothing is waiting on {pid}: {next_action(api, pid).splitlines()[0]}"
     w = thread["waiting"]
     if decision not in (w.get("options") or ["approve", "reject"]):
         return f"{w.get('title')} takes only: {', '.join(w.get('options') or [])}"
@@ -626,19 +637,20 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
     @reg(rw)
     async def keel_approve_gate(decision: Literal["approve", "reject"], project: str | None = None, why: str | None = None,
                                 answers: dict[str, str | list[str]] | None = None, choice: str | None = None,
-                                ask_person: bool = False, question_id: str | None = None,
+                                ask_person: bool = False, question_id: str | None = None, thread_id: str | None = None,
                                 ctx: Context | None = None) -> str:
-        """Decide the gate the project's flow waits at. approve, or reject (send back) with `why`.
+        """Decide the gate the project's flow waits at (thread_id: that flow, e.g. a worktree flow keel_inbox lists;
+        default the project's flow, or the one flow of the project that waits). approve, or reject (send back) with `why`.
         For questions pass `answers`: question id -> the chosen option label, a list of labels for a "pick any" question,
         or your own words. For a gate with named choices pass `choice` (its name) and `why` when the choice needs a reason.
         An approve of questions without answers (or ask_person) asks the person in a form when this client can show one
         (pick one, tick several, or own words), else gives the questions back as text."""
-        got = await ask_first(ctx, project, None, decision, why, answers, choice, ask_person)
+        got = await ask_first(ctx, project, thread_id, decision, why, answers, choice, ask_person)
         if isinstance(got, str):
             return got
-        decision, why, answers, choice, _, shown = got
+        decision, why, answers, choice, tid, shown = got
         return await act(ctx, "keel_approve_gate", "decide the gate", approve_gate, api, decision, project, why, answers, choice,
-                         question_id=question_id or shown)
+                         question_id=question_id or shown, thread_id=tid or thread_id)
 
     @reg(rw)
     async def keel_resume(decision: Literal["approve", "reject"] | None = None, thread_id: str | None = None,
@@ -657,10 +669,11 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
                               ticket: str | None = None, pr: str | None = None, inputs: dict[str, Any] | None = None,
                               run_mode: Literal["manual", "important", "auto", "readonly"] | None = None,
                               allow_dirty: bool = False, ignore: list[str] | None = None, force: bool = False,
-                              ctx: Context | None = None) -> str:
+                              branch: Literal["new", "continue"] | None = None, ctx: Context | None = None) -> str:
         """Start a keel flow on the project, as the dashboard's "Start a flow" does. No type: every flow the project can
         start (quick, small, implement, change, feature, fix, spike, clarify, review-pr, ...), one line each on what it is for
-        and the inputs it reads. type: the workflow id; request (or idea): in your words what to build, fix or find out;
+        and the inputs it reads. type: the workflow id; request (or idea): in your words what to build, fix or find out (a flow that builds
+        nothing reads none: init, knowledge-refresh, review, ship, cover, lint, hunt, hunt-next);
         title: its name (default the request's first line); ticket / pr: the ticket text or key and the pull request a
         flow like review-pr reviews (review-pr also reads the PR number or URL, or `branch: <name>`, from the request's
         first line, and the ticket from the lines after it); inputs: any other input the flow lists (e.g. lens for
@@ -670,13 +683,15 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         project's setting); pass it here when the person names one, not with keel_run_mode afterwards. A refused start
         says why and how on: allow_dirty starts with the person's uncommitted files left out of keel's commits; ignore
         lists untracked paths that are not their work (added to .git/info/exclude first); force starts although another
-        flow or side agent works on the same ticket, branch or files. Use them only when the person said so."""
+        flow or side agent works on the same ticket, branch or files. Use them only when the person said so.
+        branch: continue (the branch the project folder is on) or new (a new branch from the base branch); default:
+        continue for the flows that finish a branch (ship, cover, review, lint, address), new for the others."""
         if not type:
             from . import mcp_flows
             return guard(startable, api, project)
         return await act(ctx, "keel_start_flow", f"start a {type} flow", start_flow, api, type, idea, project,
                          time.sleep, START_WAIT, allow_fake, title, request, ticket, pr, inputs, run_mode,
-                         allow_dirty, ignore, force)
+                         allow_dirty, ignore, force, branch)
 
     @reg(rw)
     async def keel_answer(decision: Literal["approve", "reject"] = "approve", project: str | None = None,
