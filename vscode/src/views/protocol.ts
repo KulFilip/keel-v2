@@ -150,7 +150,8 @@ export type FromChat =
   | { type: "new" }
   | { type: "pickChat" }
   | { type: "pickModel" }
-  | { type: "open"; path: string; line?: number }
+  /** 0.18.57 ref: the branch, review ref or commit the answer was made from */
+  | { type: "open"; path: string; line?: number; ref?: string }
   | { type: "undoAll" }
   | { type: "keep" }
   | { type: "mention" };

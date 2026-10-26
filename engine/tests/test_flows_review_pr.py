@@ -198,6 +198,9 @@ def test_a_pr_is_fetched_into_keels_refs_and_posted_only_after_post(client, repo
     assert s["waiting"]["step"] == "share", s
     assert "PR #7 by ana" in s["waiting"]["detail"]
     assert git(repo, "rev-parse", "--verify", "-q", "refs/keel/review-pr/7").returncode == 0
+    # 0.18.57 the review's file:line findings are about the PR's head, which the project folder does not have checked
+    # out: the flow names that ref, and its links open the files there
+    assert s["source_ref"] == "refs/keel/review-pr/7"
     s = decide(client, tid, payload={"choice": "share"})                 # no ticks: summary, not met, blocking
     assert "post it as one comment on PR #7" in s["waiting"]["detail"]
     s = decide(client, tid, payload={"choice": "post"})

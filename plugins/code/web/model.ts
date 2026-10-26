@@ -64,9 +64,22 @@ export function parseDeepLink(arg: string | undefined | null): DeepLink | null {
   return line && line > 0 ? { path, line } : { path };
 }
 
-/** The hash for a file (and line): readable slashes, each name encoded. */
-export function repoHash(path: string, line?: number): string {
-  return `#/repo/${path.split("/").map(encodeURIComponent).join("/")}${line ? `:${line}` : ""}`;
+/** The hash for a file (and line): readable slashes, each name encoded. With `ref` (0.18.57), the file as that branch,
+ *  review ref or commit has it: `#/repo/<path>:<line>?ref=<ref>` (keel's codeHref writes the same link). */
+export function repoHash(path: string, line?: number, ref?: string | null): string {
+  return `#/repo/${path.split("/").map(encodeURIComponent).join("/")}${line ? `:${line}` : ""}${ref ? `?ref=${encodeURIComponent(ref)}` : ""}`;
+}
+
+/** The ref a Code link names (`?ref=feature/x`), or null. */
+export const refOfQuery = (query: string | undefined | null): string | null =>
+  new URLSearchParams(query ?? "").get("ref")?.trim() || null;
+
+/** A ref as a tab shows it: a branch's name, a review ref as "PR #7", a commit id short. */
+export function refLabel(ref: string): string {
+  const pr = ref.match(/^refs\/keel\/review(?:\/pr-|-pr\/)(\d+)$/);
+  if (pr) return `PR #${pr[1]}`;
+  if (/^[0-9a-f]{12,64}$/i.test(ref)) return ref.slice(0, 7);
+  return ref.replace(/^refs\/(heads|remotes)\//, "");
 }
 
 // ---------- editor tabs ----------
@@ -77,12 +90,14 @@ export type TabKind = string;
 // v0.15.2 "log": the Git log (one tab, id keel:log; its path is the branch it shows, see gitLog.ts)
 const OWN_KEEL_TABS = new Set(["docs", "memory", "doctor", "log"]);
 export type View = "code" | "diff" | "preview";
-export type EditorTab = { id: string; kind: TabKind; path: string; sha?: string; preview: boolean; view: View };
+/** 0.18.57 kind "ref": a file as another branch, review ref or commit has it (`ref`), read-only, nothing checked out. */
+export type EditorTab = { id: string; kind: TabKind; path: string; sha?: string; ref?: string; preview: boolean; view: View };
 export type Tabs = { tabs: EditorTab[]; active: string | null };
-export type OpenSpec = { kind?: TabKind; path: string; sha?: string; view?: View };
+export type OpenSpec = { kind?: TabKind; path: string; sha?: string; ref?: string; view?: View };
 
 export const tabId = (s: OpenSpec) => (s.kind && s.kind !== "file"
-  ? (s.kind === "commit" ? `commit:${s.sha}:${s.path}` : OWN_KEEL_TABS.has(s.kind) ? `keel:${s.kind}` : `${s.kind}:${s.path}`) : s.path);
+  ? (s.kind === "commit" ? `commit:${s.sha}:${s.path}` : s.kind === "ref" ? `ref:${s.ref}:${s.path}`
+    : OWN_KEEL_TABS.has(s.kind) ? `keel:${s.kind}` : `${s.kind}:${s.path}`) : s.path);
 
 /**
  * Open a tab like VS Code: a single click opens a preview tab (italic) that the next single click replaces;
@@ -97,7 +112,7 @@ export function openTab(t: Tabs, spec: OpenSpec, pin = false): Tabs {
       active: id,
     };
   }
-  const tab: EditorTab = { id, kind: spec.kind ?? "file", path: spec.path, sha: spec.sha, preview: !pin, view: spec.view ?? "code" };
+  const tab: EditorTab = { id, kind: spec.kind ?? "file", path: spec.path, sha: spec.sha, ...(spec.ref ? { ref: spec.ref } : {}), preview: !pin, view: spec.view ?? "code" };
   const tabs = [...t.tabs];
   const prev = tabs.findIndex((x) => x.preview);
   if (!pin && prev >= 0) {
@@ -136,7 +151,7 @@ export function retargetTab(t: Tabs, id: string, spec: OpenSpec): Tabs {
   if (next === id || !t.tabs.some((x) => x.id === id)) return t;
   if (t.tabs.some((x) => x.id === next)) return { tabs: t.tabs.filter((x) => x.id !== id), active: next };
   return {
-    tabs: t.tabs.map((x) => (x.id === id ? { ...x, id: next, kind: spec.kind ?? x.kind, path: spec.path, preview: false } : x)),
+    tabs: t.tabs.map((x) => (x.id === id ? { ...x, id: next, kind: spec.kind ?? x.kind, path: spec.path, ref: spec.ref, view: spec.view ?? x.view, preview: false } : x)),
     active: t.active === id ? next : t.active,
   };
 }

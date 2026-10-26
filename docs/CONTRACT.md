@@ -236,9 +236,29 @@ GET    /api/projects/{pid}/repo/diff?path=&against=head|base&sha=
                                                       → { path, against, ref, diff (unified), binary, truncated }   (head: work tree vs HEAD; base: work tree vs the merge-base
                                                          with main/master; sha: that commit's change; an untracked file diffs against nothing)
 GET    /api/projects/{pid}/repo/commit?sha=           → { sha, message, body, author, at, keel, files: { path, status: "A"|"M"|"D"|"R", from? }[] }
+GET    /api/projects/{pid}/repo/file-at?path=&ref=&from= → RefFile { path, ref, sha, kind: "branch"|"remote"|"review"|"commit"|"ref",
+                                                         branch? (what Check out switches to), current (ref = the checked-out branch),
+                                                         checked_out?, worktree?: { branch, path }, source: "ref"|"worktree", size, binary,
+                                                         text?, dirty (uncommitted changes in the project folder) }
+                                                         (0.18.57, plugins/code RepoRefs: `git cat-file` of <commit>:<path>, nothing checked
+                                                         out; ref: letters, digits, `._/+-` only, then `git rev-parse --verify`; 400 for an
+                                                         option, a range, `@{…}`, `~`, `^` or `:`; the path: no `..`, no .git, no secret file
+                                                         (403); from=worktree reads the worktree that has the branch out, uncommitted too)
+GET    /api/projects/{pid}/repo/find?path=            → { path, in_work_tree, checked_out?, refs: { ref, label, kind, sha, at }[] }
+                                                         (0.18.57: the local branches, refs/keel/… review refs and remote branches that have
+                                                         the file, newest first, one per commit, at most 8; never the checked-out branch)
 # web (pages/Repo.tsx + pages/repo/; since step 3 plugins/code/web): an activity bar (Explorer, Search, Source control, keel), editor tabs (single click = preview
 # tab replaced by the next one, double click = pinned), a status bar. Deep links: #/repo/<path> opens a file, #/repo/<path>:<line>
 # opens it at that line and highlights it (the Map links a table to its migration this way); the URL follows the active tab.
+# 0.18.57 #/repo/<path>:<line>?ref=<ref> opens the file as that branch, review ref (refs/keel/review-pr/7) or commit has it,
+# read-only, under "Showing <ref> — not checked out" with Check out this branch (asks; refused while the folder has
+# uncommitted changes) and Open in the (side session's) worktree; the checked-out branch opens the work tree's file.
+# A file the work tree does not have offers "Found on <branch> — open it" (GET …/repo/find). The SDK's codeHref(path,
+# line, ref) writes the link. Who sets the ref: KeelBot answers (message data.source { ref, sha, worktree?, paths?: {path:
+# ref} } — the folder's branch, a side session's worktree, files read with `git show <ref>:<path>`), flows (thread
+# state source_ref: a reviewed PR's head ref, a worktree flow's branch; the Flow page's file:line chips link there),
+# the VS Code extension (a KeelBot link with a ref opens a read-only keel-ref: document from file-at). The JetBrains
+# plugin still opens links by path in the local folder (it says "not in this project folder" for another branch's file).
 # Keys: Ctrl/⌘+P quick open (":12" = line), +Shift+F search, +Shift+E explorer, +Shift+G source control, +F find in file,
 # +G go to line, Alt+Z word wrap. Text files up to 2 MB are shown; long files render only the rows on screen.
 GET    /api/projects/{pid}/keel-docs                  → { path, what, by, updated, status: "ok"|"live"|"check" }[]

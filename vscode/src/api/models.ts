@@ -336,6 +336,30 @@ export interface HelperMessageData {
   status?: string | null;
   model?: string | null;
   files?: string[] | null;
+  /** 0.18.57 what the answer was made from: its path:line links open the file as that ref has it */
+  source?: AnswerSource | null;
+}
+
+/** 0.18.57 the branch (or commit) an answer was made from, and the files it read at another ref (path -> ref) */
+export interface AnswerSource {
+  ref?: string | null;
+  sha?: string | null;
+  worktree?: string | null;
+  paths?: Record<string, string> | null;
+}
+
+/** 0.18.57 a file as a branch, review ref or commit has it (GET /api/projects/{pid}/repo/file-at) */
+export interface RefFile {
+  path: string;
+  ref: string;
+  sha: string;
+  kind: string;
+  branch?: string | null;
+  /** the ref is the branch the project folder has checked out */
+  current: boolean;
+  checked_out?: string | null;
+  binary: boolean;
+  text?: string | null;
 }
 
 export interface HelperMessage {

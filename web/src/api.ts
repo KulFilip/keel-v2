@@ -131,6 +131,9 @@ export type AcOrder = { ids: string[]; from: "spec" | "plan" | "keel" | "person"
 export type ThreadState = {
   /** v0.17.4 the criteria (acs) are in build order; where it came from */
   ac_order?: AcOrder;
+  /** 0.18.57 the branch or ref the flow's citations are about: a worktree flow's branch, the reviewed PR's head ref
+   *  (refs/keel/review-pr/7) or branch; null: the project folder's checkout */
+  source_ref?: string | null;
   thread_id: string;
   project_id: string;
   workflow_id: string;
@@ -794,9 +797,17 @@ export type HelperMessage = {
     /** 0.18.19 part of an answer /undo took back (kept, shown dim); final: a newer message came, /redo cannot bring it back */
     reverted?: boolean; final?: boolean;
     /** 0.18.23 an answer: the mode it ran in, and the model's thinking (kept for a reload, never sent to the model) */
-    mode?: string; thinking?: string; thinking_ms?: number };
+    mode?: string; thinking?: string; thinking_ms?: number;
+    /** 0.18.57 an answer: what it was made from (its file:line links open the file as that ref has it) */
+    source?: AnswerSource };
   at: string;
 };
+/** 0.18.57 The branch (or commit) an answer was made from, the side session's worktree, and the refs it read files of
+ *  with `git show <ref>:<path>` (a PR head, another branch): `paths` maps such a path to its ref. */
+export type AnswerSource = { ref?: string | null; sha?: string | null; worktree?: string | null; paths?: Record<string, string> };
+/** The ref a `path` cited in an answer belongs to: the ref it was read from, else the answer's own. */
+export const sourceRef = (s: AnswerSource | null | undefined, path: string): string | null =>
+  s?.paths?.[path] ?? s?.paths?.[path.replace(/^\.\//, "")] ?? s?.ref ?? null;
 export type HelperSession = {
   id: string; project: string; root: string; mode: HelperMode; title: string; model: Model;
   status: "idle" | "running" | "failed"; error?: string | null; thread_id?: string | null; grants?: string[];

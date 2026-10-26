@@ -112,10 +112,10 @@ async function fetchAll(pid: string | null): Promise<Data> {
   return data;
 }
 
-/** The link that opens a file at a line, from the part that shows files (Code); null when none does. */
-export function fileHash(path: string, line?: number): string | null {
+/** The link that opens a file at a line (0.18.57: as `ref` has it), from the part that shows files (Code); null when none does. */
+export function fileHash(path: string, line?: number, ref?: string | null): string | null {
   const s = sources().find((x) => x.fileHash);
-  return s?.fileHash ? s.fileHash(path, line) : null;
+  return s?.fileHash ? s.fileHash(path, line, ref) : null;
 }
 
 /** Code (the code graph's search) for this text; [] when the graph is not there (without the Graph plugin it is not

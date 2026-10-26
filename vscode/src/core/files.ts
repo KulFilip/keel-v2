@@ -29,3 +29,31 @@ export async function openPath(state: KeelState, path: string, line?: number): P
     return true;
   }
 }
+
+/** 0.18.57 the read-only documents of files at another ref (keel-ref:/<path>?<ref>): their text, read from keel's api */
+export const REF_SCHEME = "keel-ref";
+const refTexts = new Map<string, string>();
+
+export function refDocs(): vscode.Disposable {
+  return vscode.workspace.registerTextDocumentContentProvider(REF_SCHEME, {
+    provideTextDocumentContent: (u) => refTexts.get(u.toString()) ?? "",
+  });
+}
+
+/**
+ * Opens a path keel names as `ref` has it (a KeelBot answer made on another branch, a PR head it read with git show):
+ * the local file when the ref is the folder's checked-out branch (or keel cannot read it), else the file's text from
+ * keel's api (GET /repo/file-at), read-only, in a document titled "<path> @ <ref>".
+ */
+export async function openPathAt(state: KeelState, path: string, line: number | undefined, ref: string): Promise<boolean> {
+  const f = await state.call((api, pid) => api.fileAt(pid, path, ref), true);
+  if (!f || f.current || f.binary || f.text == null) return openPath(state, path, line);
+  const uri = vscode.Uri.from({ scheme: REF_SCHEME, path: `/${f.path} @ ${ref}`, query: ref });
+  refTexts.set(uri.toString(), f.text);
+  const doc = await vscode.workspace.openTextDocument(uri);
+  const opts: vscode.TextDocumentShowOptions = { preview: true };
+  if (line && line > 0) opts.selection = new vscode.Range(line - 1, 0, line - 1, 0);
+  await vscode.window.showTextDocument(doc, opts);
+  vscode.window.setStatusBarMessage(`keel: ${f.path} as ${ref} has it (not checked out here)`, 8000);
+  return true;
+}

@@ -93,7 +93,7 @@ export {
   Skeleton,
   useNarrow,
 } from "../components/page";
-export { Markdown } from "../components/Markdown";
+export { CiteLinks, Markdown } from "../components/Markdown";
 // a code block with keel's highlighting (the Database plugin's KeelBot card shows its SQL with it)
 export { CodeBlock } from "../components/Code";
 // keel 0.18.9 a failed button's "Ask KeelBot to fix it" (KeelBot's chat provides AskKeelBot)
@@ -240,12 +240,13 @@ export type { Fact, FactKind, GraphHit, HelperSelection, IndexStatus, KeelDoc, M
 // diff with its fold, the @file ranking (above), file:line links in answers, and the api's types of its sessions, of the
 // flow it follows and of the buttons it gives
 export { ModelPicker } from "../components/ModelPicker";
-export { fileLink, modelLabel, provLabel } from "../format";
+export { codeHref, fileLink, modelLabel, provLabel } from "../format";
 export { mergeSteps } from "../components/StepFeed";
 export { StepView } from "../components/StepView";
 export { DiffView, FoldedText } from "../components/Code";
+export { sourceRef } from "../api";
 export type {
-  CiRun, FlowView, HelperChange, HelperCommand, HelperDone, HelperHandover, HelperMention, HelperMessage, HelperMode,
+  AnswerSource, CiRun, FlowView, HelperChange, HelperCommand, HelperDone, HelperHandover, HelperMention, HelperMessage, HelperMode,
   HelperQuestion, HelperSession, HelperTurnStarted, JobStep, Model, ThreadState, WorkflowCheck,
 } from "../api";
 // 0.15.2–0.15.4 (main's releases, ported to the plugin track): keel's keys for the parts (Focus mode's key and event, the
