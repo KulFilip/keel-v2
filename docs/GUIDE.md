@@ -703,7 +703,7 @@ the budget and connections. Each other part is a plugin with its own version:
 | **Tasks**, **Jira** | the task board and Jira tickets | Jira needs Tasks |
 | **keel Product** (beta) | initiatives and teams | Tasks and Jira |
 
-**Control › Plugins** has these tabs:
+**Settings › Plugins** (`#/settings/plugins`) has these tabs:
 
 - **Installed:** every plugin with its version and an On switch. Turning a plugin on or off restarts keel (about 30 s).
   A plugin that others need goes off together with them, and one that needs others turns them on. Database, Git,
@@ -737,7 +737,7 @@ Start keel with fewer plugins:
 | Command | What you get |
 |---|---|
 | `keel2 start` | keel with every plugin (the `:latest` image) |
-| `keel2 start --core` | keel's core only (the `:core` image); add plugins in Control › Plugins |
+| `keel2 start --core` | keel's core only (the `:core` image); add plugins in Settings › Plugins |
 | `keel2 start --safe` | only the plugins that came with keel, none you installed (when a plugin breaks keel) |
 
 Make your own plugin: [docs/plugins/17-publish-your-plugin.md](plugins/17-publish-your-plugin.md), or let keel build it:
@@ -824,11 +824,11 @@ for this project": it gives a **Save the stack** card, checked by keel first.
 
 ## Plugins: Database, Git and CI/CD
 
-Turn them on in **Control › Plugins**: in **Installed**, the plugin's **This project** switch (or **For every
+Turn them on in **Settings › Plugins**: in **Installed**, the plugin's **This project** switch (or **For every
 project**); its own page lists every project with its switch. Nothing new to learn: they add to the
 pages you use.
 
-- **Database**: add the project's database in **Connections › Databases** (keel suggests what docker compose,
+- **Database**: add the project's database in **Settings › Databases** (keel suggests what docker compose,
   `.env.example` or Spring's config name; the password is saved encrypted). Then:
   - ask KeelBot data questions ("which players have no score?") — it reads the schema, runs one read-only query and
     shows the rows; `/sql` does it directly;
@@ -842,7 +842,7 @@ pages you use.
   and masks secret columns for agents also under another name. These rules are a second line: still give each
   connection a **least-privilege database role** (a read-only user where agents only read, never a superuser). A
   SQLite file must be inside the project folder.
-- **Git**: connect GitHub in **Connections › GitHub**: press **Sign in with GitHub**, open the link (github.com/login/device)
+- **Git**: connect GitHub in **Settings › Connections › GitHub**: press **Sign in with GitHub**, open the link (github.com/login/device)
   and type the one-time code keel shows (there is a Copy button and an **Open GitHub** button). keel notices by itself
   when you allow access, and the card says "connected as <login> · scopes · host". Under it, **or paste a token** still
   works. **Sign out** removes keel's token. For GitHub Enterprise, type your host in the host field first. keel runs
@@ -868,7 +868,7 @@ pages you use.
 - **CI/CD**: keel watches the pipelines on GitHub Actions (with the GitHub token) and tells you when one fails.
   **Run › Jobs › Pipelines** shows the runs; open a failed one for its failed jobs and the end of the log, then
   **Fix it** (the ci-fix flow: read the failure, fix, commit, push, wait for CI), **Run the failed jobs again**, or
-  **Ask KeelBot why** (`/ci`). **Settings › When CI fails**: tell me, start the fix flow by itself, or nothing.
+  **Ask KeelBot why** (`/ci`). **Settings › General › Git › When CI fails**: tell me, start the fix flow by itself, or nothing.
 - **Claude Code**: `keel2 mcp` adds the read tools (`keel_db_query`, `keel_git_status`, `keel_ci_failure` …);
   `keel2 mcp --write` also the acting ones, and each waits for your **Allow** in keel's Inbox.
 - **Code Review in the terminal** (0.18.6): with the Code Review plugin on, keel TUI (`keel2 tui`) has a **review mode**.
@@ -946,7 +946,7 @@ tokens and money of today and this month; `/budget` and `keel_budget` show the r
 
 ## Tasks and Jira
 
-**Tasks** is a board of your work: your own tasks, or the tickets of a Jira board or query (Connections › Jira, per
+**Tasks** is a board of your work: your own tasks, or the tickets of a Jira board or query (Settings › Connections › Jira, per
 project: Jira Cloud with email + API token, or Server / Data Center with a personal access token).
 
 Press **Start** on a task and keel runs a flow for it (bug → fix, story → feature, task → change). It moves the Jira
@@ -969,7 +969,7 @@ saved encrypted in keel's own database (the `keel-data` volume), so it survives 
 
 From the terminal: `keel2 token <claude|codex|copilot|anthropic|openai|github>`, and `keel2 tokens` to list them. A long
 token is often shown over two lines; send it in one piece from the clipboard: `pbpaste | keel2 token claude` (Linux:
-`wl-paste | keel2 token claude`). keel checks the token before it saves it and says what is wrong. Connections shows a
+`wl-paste | keel2 token claude`). keel checks the token before it saves it and says what is wrong. Settings › Models & logins shows a
 subscription as ready only when keel has its login; OpenCode only when its own login file (`opencode auth login`, where
 keel's agents run) has a GitHub Copilot login. In native mode keel's agents use their own home, so your own
 Claude Code login is not used.
@@ -1221,7 +1221,7 @@ Run `keel2 doctor` first. The most common ones:
 | "Docker is not running" | start Docker Desktop (keel2 starts it on a Mac) |
 | "not a git repository" | say yes when keel2 offers `git init`; for a git worktree, see [Git worktree projects](#git-worktree-projects) |
 | port 8080 is busy | nothing: keel2 uses the next free port and tells you |
-| an agent "is not logged in" | Connections › Set up login |
+| an agent "is not logged in" | Settings › Models & logins › Set up login |
 | your tests start containers | `keel2 start --docker <folder>` |
 | "Sign in to keel" in the browser | `keel2 open` |
 | copying in keel TUI does nothing (macOS Terminal) | `/mouse off`, then select |
