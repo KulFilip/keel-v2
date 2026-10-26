@@ -36,6 +36,22 @@ class FlowBranchApiTest : ApiTest() {
     }
 
     @Test
+    fun `B11 a workflow with own_branch false starts on the branch the folder is on`() {
+        val hunt = engine.featureTemplate + mapOf("id" to "hunt", "name" to "hunt (keel)",
+            "yaml" to "id: hunt\nname: hunt (keel)\nown_branch: false\nsteps: []\n")
+        engine.extraTemplates += hunt
+        try {
+            val (pid, root) = newProject("hunt-no-branch")
+            post("/api/projects/$pid/flows", mapOf("workflow_id" to "hunt", "title" to "Bug hunt on scores", "allow_fake" to true))
+                .andExpect(status().isOk)
+            assertThat(git(root, "rev-parse", "--abbrev-ref", "HEAD").trim()).isEqualTo("main")
+            assertThat(git(root, "branch", "--list", "feat/*").trim()).isEmpty()
+        } finally {
+            engine.extraTemplates -= hunt
+        }
+    }
+
+    @Test
     fun `a start the engine refuses leaves the checkout on its own branch and drops the new one`() {
         val fix = engine.featureTemplate + mapOf("id" to "fix", "name" to "fix (keel)")
         engine.extraTemplates += fix

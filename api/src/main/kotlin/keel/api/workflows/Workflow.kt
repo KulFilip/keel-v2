@@ -92,7 +92,7 @@ data class Budget(val maxTokens: Int? = null, val onLimit: String? = null)
 
 /** What a workflow YAML file holds (also the library metadata keys, ignored by the engine). */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-@JsonPropertyOrder("id", "name", "source", "version", "about", "est_tokens", "mcp", "needs_plugins", "based_on", "keel_rules", "budget", "steps")
+@JsonPropertyOrder("id", "name", "source", "version", "about", "est_tokens", "mcp", "needs_plugins", "based_on", "keel_rules", "own_branch", "budget", "steps")
 data class WorkflowDoc(
     val id: String? = null,
     val name: String = "",
@@ -105,6 +105,8 @@ data class WorkflowDoc(
     val needsPlugins: List<String>? = null,
     val basedOn: String? = null,
     val keelRules: Boolean = true,
+    /** 0.18.57 false: a flow of this workflow cuts no branch of its own when it starts (hunt, hunt-next). */
+    val ownBranch: Boolean? = null,
     val budget: Budget? = null,
     val steps: List<Step> = emptyList(),
 ) {
@@ -171,6 +173,10 @@ data class Workflow(
 @JsonInclude(JsonInclude.Include.ALWAYS)
 @JsonPropertyOrder("catalog", "name", "version", "update")
 data class MarketOrigin(val catalog: String, val name: String, val version: String, val update: String? = null)
+
+/** 0.18.57 B11 a workflow's `own_branch: false` (hunt, hunt-next): its flow cuts no branch of its own in the folder. */
+fun wantsOwnBranch(wf: Workflow): Boolean =
+    runCatching { Yaml.mapper.readTree(wf.yaml)?.get("own_branch") }.getOrNull()?.takeIf { it.isBoolean }?.asBoolean() ?: true
 
 /** A workflow's newest flow in the project (the Workflows page and KeelBot show it). */
 data class LastRun(val threadId: String, val title: String, val status: String, val at: String)

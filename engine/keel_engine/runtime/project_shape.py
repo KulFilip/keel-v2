@@ -151,3 +151,62 @@ def ui_or_http(root: str | None) -> tuple[bool, str]:
     why = _http_layer(root, rules.load_config(root))
     return (True, why) if why else (False, "no frontend, no HTTP server framework, no API contract and no e2e command")
 
+
+
+# ------------------------------------------------------------------ the hunt's lens fit (B11)
+
+DB_DEPS = ("sqlalchemy", "psycopg", "psycopg2", "psycopg2-binary", "asyncpg", "pymysql", "mysqlclient", "peewee",
+           "tortoise-orm", "alembic", "prisma", "@prisma/client", "typeorm", "sequelize", "mongoose", "mongodb", "knex",
+           "drizzle-orm", "pg", "mysql2", "better-sqlite3", "spring-boot-starter-data-jpa", "spring-boot-starter-jdbc",
+           "spring-data-jpa", "hibernate-core", "exposed-core", "jooq", "flyway-core", "liquibase-core",
+           "gorm.io/gorm", "github.com/jackc/pgx", "github.com/lib/pq", "diesel", "sqlx", "sea-orm", "activerecord",
+           "doctrine/orm", "doctrine/dbal", "Microsoft.EntityFrameworkCore")
+AUTH_DEPS = ("passport", "jsonwebtoken", "jose", "next-auth", "@auth/core", "pyjwt", "authlib", "python-jose",
+             "django-allauth", "flask-login", "spring-boot-starter-security", "spring-security-core",
+             "spring-boot-starter-oauth2-resource-server", "devise", "bcrypt", "argon2-cffi", "golang-jwt", "jjwt-api",
+             "lexik/jwt-authentication-bundle", "symfony/security-bundle")
+MESSAGING_DEPS = ("kafkajs", "amqplib", "bullmq", "bull", "nats", "pika", "aio-pika", "celery", "kombu",
+                  "confluent-kafka", "kafka-python", "spring-kafka", "spring-boot-starter-amqp", "spring-rabbit",
+                  "github.com/segmentio/kafka-go", "github.com/rabbitmq/amqp091-go", "lapin", "rdkafka", "sidekiq",
+                  "symfony/messenger", "@aws-sdk/client-sqs", "@google-cloud/pubsub")
+MIGRATION_DIRS = ("migrations", "db/migrate", "db/migration", "alembic", "flyway", "prisma/migrations")
+AUTH_PATH = re.compile(r"(^|/)(auth|security|login|oauth|session)s?(/|\.|_)", re.I)
+CONCURRENT = re.compile(r"\b(threading|ThreadPoolExecutor|multiprocessing|asyncio\.gather|asyncio\.create_task|"
+                        r"Promise\.all|worker_threads|synchronized|ReentrantLock|ExecutorService|CompletableFuture|"
+                        r"@Async|launch\s*\{|async\s*\{|Mutex|RwLock|sync\.WaitGroup|go func|tokio::spawn|"
+                        r"std::thread)")
+CODE_EXT = (".kt", ".java", ".scala", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".vue", ".svelte", ".py", ".php", ".go",
+            ".rs", ".rb", ".ex", ".cs", ".swift", ".dart")
+SMALL = 30           # a project with at most this many source files is small: only the lenses its code calls for
+
+
+def signals(root: str) -> dict:
+    """What the hunt's default lenses depend on: source files (count), http (and why), web, db, auth, concurrency,
+    messaging, contract. Each value says why when it is set, so the lens gate can show it."""
+    from . import stacks
+
+    r = Path(root)
+    cfg = rules.load_config(root)
+    files = tracked_files(r)
+    code = [f for f in files if f.endswith(CODE_EXT) and not any(p in SKIP for p in Path(f).parts)]
+    http, why_http = ui_or_http(root)
+    out: dict = {"files": len(code), "http": why_http if http else None,
+                 "web": "it has a web layer" if stacks.web_layer(root, cfg) else None}
+    db = deps_named(r, DB_DEPS)
+    mig = next((d for d in MIGRATION_DIRS if any(f.startswith(d + "/") or f"/{d}/" in f"/{f}" for f in files)), None)
+    out["db"] = f"{db[1]} names {db[0]}" if db else (f"it has {mig}/" if mig else None)
+    auth = deps_named(r, AUTH_DEPS)
+    path = next((f for f in code if AUTH_PATH.search(f)), None)
+    out["auth"] = f"{auth[1]} names {auth[0]}" if auth else (f"{path} looks like auth code" if path else None)
+    msg = deps_named(r, MESSAGING_DEPS)
+    out["messaging"] = f"{msg[1]} names {msg[0]}" if msg else None
+    contract = str((cfg.get("contract") or {}).get("file") or "").strip().lstrip("/")
+    out["contract"] = contract if contract and ".." not in Path(contract).parts and (r / contract).is_file() else None
+    conc = None
+    for f in [f for f in code if "test" not in f.lower()][:400]:
+        m = CONCURRENT.search(_text(r / f, 200_000))
+        if m:
+            conc = f"{f} uses {m.group(1).strip()}"
+            break
+    out["concurrency"] = conc
+    return out

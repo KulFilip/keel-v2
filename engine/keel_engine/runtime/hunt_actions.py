@@ -1,7 +1,8 @@
 """The code steps of the hunt and hunt-next workflows (content/workflows/hunt.yaml, hunt-next.yaml).
 
-    hunt_start     opens a run in the backlog: mode auto|semi, scope, fast, the proposed lenses (settings or seed), the
-                   stack's health; the lens gate asks the mode and the lenses as questions
+    hunt_start     opens a run in the backlog: mode auto|semi, scope, fast, the proposed lenses (settings or seed, else
+                   hunt.lenses, else the ones the project calls for: hunt.fit_lenses), the stack's health; the lens
+                   gate asks the mode and the lenses as questions
     hunt_confirm   the mode and the lens set the user confirmed at the gate -> one sweep item per lens and lane, each
                    with the base URLs and the environment caution (shared unless hunt.disposable)
     hunt_map       one explorer's map of the repository (no knowledge base yet) -> every sweep item
@@ -12,7 +13,8 @@
     hunt_verdicts  each prover's verdict -> the backlog; a refused verdict sends that candidate back to the provers
     hunt_group     the investigator's groups (findings that share one cause)
     hunt_report    report.md + recipes; refuses while any candidate has no verdict
-    hunt_commit    commits docs/hunts/<run>/ as docs(HUNT-<run>)
+    hunt_commit    commits docs/hunts/<run>/ as docs(HUNT-<run>); with layout keel/external the report is in
+                   .keel/hunts/<run>/, outside git, and nothing is committed
     hunt_close     closes a finding or group (fixed | accepted | wontfix + a note) from a gate's answer
     hunt_preview   hunt-next: what take would hand over (the top group, its severity, a stale verdict) for the gate
     hunt_take      hunt-next: the top open group (or the one picked) -> fix (defect) or feature (unspecified), with the recipe
@@ -127,7 +129,7 @@ def _mode_question(mode: str, hunters: int) -> dict:
             "options": [{"label": m, "description": about[m], "recommended": m == mode} for m in order]}
 
 
-def _lens_detail(cfg: dict, run: dict, proposed: list[str]) -> str:
+def _lens_detail(cfg: dict, run: dict, proposed: list[str], fit: str | None = None) -> str:
     pairs = hunt.sweep_pairs(cfg, proposed)
     stack = run.get("stack") or {}
     lines = [f"Hunt {run['run']} ({run['mode']}{', fast' if run['fast'] else ''}), scope {run['scope']['mode']}"
@@ -140,6 +142,9 @@ def _lens_detail(cfg: dict, run: dict, proposed: list[str]) -> str:
              f"Mode: {run['mode']} (answer the mode question to change it). semi stops after the sweep and before the "
              f"report; auto runs on: {len(pairs)} hunter(s), then one prover per candidate.", "",
              "Proposed lenses (one hunter per lens and lane):"]
+    if fit:
+        lines[-1] = (f"Proposed lenses, the ones this project calls for ({fit}; hunt.lenses in .keel/config.yml sets "
+                     "your own), one hunter per lens and lane:")
     lines += [f"- {lens} [{', '.join(hunt.lanes_for(cfg, lens))}]: {hunt.LENS_HELP.get(lens, '')}" for lens in proposed]
     off = [x for x in cfg["lenses"] if x not in proposed]
     if off:
@@ -201,8 +206,15 @@ def _start(a: ActionInput) -> ActionResult:
         return ActionResult(False, f"A hunt runs in auto or semi mode, not {mode}.", "settings.mode: auto | semi")
     fast = bool(opt.get("fast"))
     configured = list(cfg["lenses"])
-    proposed = [x for x in cfg["fast_lenses"] if x in configured] if fast else configured
+    fit_note = None
+    base = configured
+    if not cfg.get("lenses_set"):
+        # 0.18.57 B11 no hunt.lenses in the project's config: the lenses its code calls for, not all of them
+        base, fit_note = hunt.fit_lenses(a.root, cfg)
+        configured = list(dict.fromkeys([*configured, *base]))
+    proposed = ([x for x in cfg["fast_lenses"] if x in base] or base[:1]) if fast else base
     if opt.get("lenses"):
+        fit_note = None
         proposed = _lens_list(opt["lenses"])
         unknown = [x for x in proposed if not hunt.brief(a.root, x)]
         if unknown:
@@ -219,7 +231,7 @@ def _start(a: ActionInput) -> ActionResult:
             "prove_concurrency": max(1, int(cfg["prove_concurrency"] or 4)), "report_dir": cfg["report_dir"],
             "map": "yes" if _wants_map(a.root, cfg) else "no"}
     hunters = len(hunt.sweep_pairs(cfg, proposed))
-    data = _data(a, hunt=info, proposed_lenses=proposed, confirm_lenses_detail=_lens_detail(cfg, run, proposed),
+    data = _data(a, hunt=info, proposed_lenses=proposed, confirm_lenses_detail=_lens_detail(cfg, run, proposed, fit_note),
                  confirm_lenses_questions=[_mode_question(mode, hunters), _lens_question(cfg, proposed)])
     return ActionResult(True, f"hunt {run['run']} started ({mode}{', fast' if fast else ''}), scope {scope['mode']}: "
                               f"{len(proposed)} lens(es) proposed", update={"data": data})
@@ -592,6 +604,10 @@ def _commit(a: ActionInput) -> ActionResult:
     if not git.is_repo(a.root):
         return ActionResult(True, "Not a git repository; the report is not committed.")
     folder = str(Path(run["report"]).parent)
+    if hunt.kept_out_of_git(a.root, folder):
+        # 0.18.57 B11 layout keel / external: keel's files stay out of git, the hunt report too
+        return ActionResult(True, f"The report stays in {folder}/, outside git (layout {layout.resolve(a.root).name}: "
+                                  "keel's files are not committed); nothing to commit.")
     git.git(a.root, "add", "--", folder)
     staged = [f for f in git.git(a.root, "diff", "--cached", "--name-only", "--", folder).stdout.splitlines() if f.strip()]
     if not staged:

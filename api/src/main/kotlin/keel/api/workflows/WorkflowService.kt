@@ -261,7 +261,8 @@ class WorkflowService(
             }
             from.startsWith("template:") -> {
                 val t = get(from.removePrefix("template:"))
-                WorkflowDoc(name = name, basedOn = "keel/${t.id}", keelRules = keelRules ?: t.keelRules, needsPlugins = t.needsPlugins, steps = t.steps)
+                WorkflowDoc(name = name, basedOn = "keel/${t.id}", keelRules = keelRules ?: t.keelRules, needsPlugins = t.needsPlugins,
+                    ownBranch = if (wantsOwnBranch(t)) null else false, steps = t.steps)
             }
             from.startsWith("library:") -> {
                 val lib = libraryDoc(from.removePrefix("library:"))

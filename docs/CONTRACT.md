@@ -829,7 +829,8 @@ Workflows in `content/workflows/` (ORDER: feature, change, from 0.18.12 quick, s
   `mode`, `scope`, `lenses`, `fast`, `run` instead.
 
 ### hunt (content/workflows/hunt.yaml, runtime/hunt.py + hunt_actions.py)
-`start` (run in the backlog) → `confirm_lenses` gate (confirm|stop; `payload.lenses` or "drop x" in the note) → `confirm`
+`own_branch: false` (the api cuts no branch for it; hunt-next too). `start` (run in the backlog; the proposed lenses are
+`hunt.lenses`, else the ones the project's code calls for: `hunt.fit_lenses`) → `confirm_lenses` gate (confirm|stop; `payload.lenses` or "drop x" in the note) → `confirm`
 (one sweep item per lens×lane, brief copied in) → `deps` (security lens: the dependency audit first, always) → `sweep`
 (one `hunter` per item; JSON list + `FINDINGS: n`) → `ingest` (lane enforced by classifying every cited path, cap
 `max_candidates_per_lens` (halved when fast), severity dropped, same file ±`dedup_line_window` merged as `also`;
@@ -838,8 +839,9 @@ symptom and where only, never the claim; `batch` = `hunt.prove_concurrency`) →
 twice, `.sh .http .sql .md .probe.ts`, a severity; a 5xx is never below `severity_floor_5xx`; refused verdicts go back to
 the provers, at most `prove_rounds` (3) rounds, then unproven / raised to the floor) → `verdicts_gate` (semi only) →
 `group` (investigator, groups that share a cause) → `report` (`docs/hunts/<run>/report.md` + `repro/`; refuses while any
-candidate has no verdict; marks `needs_e2e`) → `commit` (`docs(HUNT-<run>): bug hunt: N proven, M suspected`, only that
-folder) → `triage` gate (take → `start_flow hunt-next` | close {id, as} + note | stop).
+candidate has no verdict; marks `needs_e2e`, never in a project with no UI or HTTP layer) → `commit`
+(`docs(HUNT-<run>): bug hunt: N proven, M suspected`, only that folder; with layout keel / external the report folder is
+`.keel/hunts/<run>/`, outside git, and nothing is committed) → `triage` gate (take → `start_flow hunt-next` | close {id, as} + note | stop).
 
 ### hunt-next
 `take` (refuses while any candidate has no verdict or the report folder is uncommitted; the top open group by worst severity,

@@ -33,6 +33,7 @@ import keel.api.settings.SettingsService
 import keel.api.skills.SkillService
 import keel.api.workflows.Workflow
 import keel.api.workflows.WorkflowService
+import keel.api.workflows.wantsOwnBranch
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.http.HttpStatus
 import org.springframework.jdbc.core.JdbcTemplate
@@ -293,8 +294,9 @@ class FlowService(
         var madeBranch: MadeBranch? = null
         if (wt == null) {
             refuseDirty(root, allowDirty)
-            // an add-on's flow that only writes its own documents (keel Product) stays on the branch it is on
-            if (ownBranch) madeBranch = ownBranch(pid, root, title, workflowId, branch)
+            // an add-on's flow that only writes its own documents (keel Product) stays on the branch it is on, and so
+            // does a workflow that says `own_branch: false` (0.18.57 hunt: a report needs no branch; hunt-next hands over)
+            if (ownBranch && wantsOwnBranch(start.workflow)) madeBranch = ownBranch(pid, root, title, workflowId, branch)
         } else {
             start = start.copy(root = wt.path)
         }

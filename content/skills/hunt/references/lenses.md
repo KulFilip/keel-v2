@@ -7,7 +7,8 @@ whether a prover can reproduce it, so a lens that produces well-written unease i
 concrete, checkable claims.
 
 Adding a lens is a line in `hunt.lenses` in `.keel/config.yml`, an entry in `hunt.lens_lanes` saying which side of the
-tree it reads, and a brief. The flow, the guards and the agents do not change.
+tree it reads, and a brief. The flow, the guards and the agents do not change. Without `hunt.lenses` the hunt proposes
+only the lenses the project's code calls for: a library with no UI or HTTP layer gets no route, browser or stack lens.
 
 **Put a project's own lens in `.keel/lenses/<name>.md`.** keel reads that file first, for every lens, so a project can
 override one of these as well as add its own, and it is version-controlled with the code it describes.
