@@ -352,6 +352,36 @@ async def test_claude_runner_writes_context_and_settings_outside_the_project(tmp
     assert argv[argv.index("--tools") + 1] == "Read,Bash,Glob,Grep"
 
 
+async def test_claude_runner_loads_no_plugins_or_skills_from_the_persons_claude_setup(tmp_path, monkeypatch, root):
+    """0.18.57 a keel agent must not load the plugins, skills, hooks or agents of the person's own Claude Code: the
+    project folder's .claude/settings.json and .claude/settings.local.json (enabledPlugins, hooks) and .claude/skills
+    are the person's setup, not keel's. claude reads only keel's own config home (the "user" source), and keel's guard
+    still comes in through --settings."""
+    out = tmp_path / "out"
+    out.mkdir()
+    res = {"type": "result", "result": "done", "usage": {}}
+    bin_ = tmp_path / "claude"
+    bin_.write_text(f"#!/bin/sh\ncat > /dev/null\nprintf '%s\\n' \"$@\" > {out}/argv\nenv > {out}/env\necho '{json.dumps(res)}'\n")
+    bin_.chmod(0o755)
+    monkeypatch.setenv("KEEL_CLAUDE_BIN", str(bin_))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "persons-claude"))
+    (root / ".claude" / "skills" / "my-skill").mkdir(parents=True)
+    (root / ".claude" / "settings.local.json").write_text(json.dumps({"enabledPlugins": {"my-plugin@my-market": True}}))
+    work = tmp_path / "work"
+    work.mkdir()
+    req = AgentRequest(agent="clarifier", system="", prompt="go", root=str(root), phase="clarify",
+                       model={"provider": "claude", "mode": "subscription", "model": "haiku"},
+                       toolbox=ToolBox(str(root), "none", readonly=True), workdir=str(work), thread="t9")
+    await ClaudeCLIRunner().run(req, lambda *a, **k: None)
+    argv = (out / "argv").read_text().splitlines()
+    assert "--setting-sources" in argv, argv
+    assert argv[argv.index("--setting-sources") + 1] == "user"
+    assert "--plugin-dir" not in argv
+    assert "--settings" in argv                                    # keel's guard hook still loads
+    env = dict(line.split("=", 1) for line in (out / "env").read_text().splitlines() if "=" in line)
+    assert env["CLAUDE_CONFIG_DIR"] != str(tmp_path / "persons-claude")   # keel's own config home, never the person's
+
+
 @pytest.mark.skipif(not shutil.which("node"), reason="node is not installed")
 def test_opencode_plugin_refuses_through_the_hook(tmp_path, root):
     """The generated plugin, run by node against the real hook (opencode itself is not needed for this half)."""
