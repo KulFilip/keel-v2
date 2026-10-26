@@ -53,6 +53,22 @@ data class SkillDetail(
 
 data class SkillAssign(val agents: List<String>? = null, val `when`: String? = null, val enabled: Boolean? = null)
 
+/** 0.18.57 one of the repo's own docs for coding agents (AGENTS.md, CLAUDE.md, ...) and one of its skills. */
+data class RepoDoc(val path: String, val title: String = "")
+data class RepoSkill(val id: String, val name: String, val path: String, val about: String, val use: String?, val why: String,
+                     val agents: List<String>)
+
+/**
+ * Skills › Found in the repo: what init or the last knowledge refresh found ([foundAt], null before one ran), whether the
+ * repo's skills are loaded ([on]: the project's setting repo_skills) and the agents that load at least one ([attached]).
+ */
+data class RepoSkills(val on: Boolean, val foundAt: String?, val docs: List<RepoDoc>, val skills: List<RepoSkill>, val attached: List<String>)
+
+/** .keel/project-rules.json as the engine writes it (engine runtime/project_rules.py). */
+private data class RepoRecord(val foundAt: String? = null, val docs: List<RepoDoc> = emptyList(), val skills: List<RepoEntry> = emptyList())
+private data class RepoEntry(val name: String = "", val path: String = "", val about: String = "", val use: String? = null,
+                             val why: String = "", val agents: List<String> = emptyList())
+
 private data class SkillDef(
     val id: String, val kind: String, val source: String, val stack: String, val version: String,
     val about: String, val body: String, val bytes: Long, val refs: List<SkillRef>,
@@ -65,6 +81,7 @@ class SkillService(
     private val jdbc: JdbcTemplate,
     private val projects: ProjectService,
     private val props: KeelProperties,
+    private val settings: keel.api.settings.SettingsService,
 ) {
     private fun scan(dir: Path, source: String): List<SkillDef> {
         if (!Files.isDirectory(dir)) return emptyList()
@@ -116,6 +133,53 @@ class SkillService(
         }, *args)
     }
 
+    private fun record(pid: String): RepoRecord? {
+        val f = projects.root(pid).resolve(RECORD)
+        if (!Files.isRegularFile(f)) return null
+        return runCatching { Json.read<RepoRecord>(Files.readString(f)) }.getOrNull()
+    }
+
+    /**
+     * The repo's skills (0.18.57), read live from the files .keel/project-rules.json names: a path out of the project
+     * or a file that is gone is left out; a name keel or the project has already gets "-repo".
+     */
+    private fun repoFound(pid: String): List<Pair<RepoEntry, SkillDef>> {
+        val rec = record(pid) ?: return emptyList()
+        val root = projects.root(pid).toAbsolutePath().normalize()
+        val taken = (builtins() + custom(pid)).map { it.id }.toMutableSet()
+        return rec.skills.mapNotNull { e ->
+            if (e.name.isBlank() || e.path.isBlank()) return@mapNotNull null
+            val f = root.resolve(e.path).normalize()
+            if (!f.startsWith(root) || f.startsWith(root.resolve(".keel")) || !Files.isRegularFile(f) || Files.size(f) > MAX_IMPORT) return@mapNotNull null
+            val body = runCatching { Files.readString(f) }.getOrNull() ?: return@mapNotNull null
+            val id = Slug.of(e.name).let { if (it in taken) "$it-repo" else it }.also { taken += it }
+            val kind = when (e.use) { "tests" -> "testing"; "implementation" -> "implementation"; else -> "knowledge" }
+            val whenText = when (e.use) { "tests" -> "tests"; "implementation" -> "code changes"; else -> "on demand" }
+            e to SkillDef(id, kind, "repo", "any", "repo", e.about.ifBlank { FrontMatter.split(body).first["description"]?.toString() ?: "" },
+                body, body.toByteArray().size.toLong(), emptyList(), AgentNames.canonicalList(e.agents), whenText, pid)
+        }
+    }
+
+    private fun repoOn(pid: String): Boolean = settings.effective(pid).repoSkills
+
+    private fun repo(pid: String?): List<SkillDef> = if (pid == null || !repoOn(pid)) emptyList() else repoFound(pid).map { it.second }
+
+    fun repoView(pid: String): RepoSkills {
+        projects.require(pid)
+        val rec = record(pid)
+        val on = repoOn(pid)
+        val found = repoFound(pid).map { (e, d) -> e to view(d, pid) }
+        val attached = if (on) found.filter { it.second.enabled }.flatMap { it.second.agents }.distinct() else emptyList()
+        return RepoSkills(on, rec?.foundAt, rec?.docs.orEmpty(),
+            found.map { (e, v) -> RepoSkill(v.id, e.name, e.path, v.about, e.use, e.why, v.agents) }, attached)
+    }
+
+    fun repoSwitch(pid: String, on: Boolean): RepoSkills {
+        projects.require(pid)
+        settings.updateProject(pid, mapOf("repo_skills" to on))
+        return repoView(pid)
+    }
+
     private fun assignment(pid: String, sid: String): SkillAssign? =
         jdbc.query("SELECT json FROM skill_assign WHERE project_id = ? AND skill_id = ?", { rs, _ -> rs.getString(1) }, pid, sid)
             .firstOrNull()?.let { runCatching { Json.read<SkillAssign>(it) }.getOrNull() }
@@ -130,11 +194,11 @@ class SkillService(
 
     fun list(pid: String): List<Skill> {
         projects.require(pid)
-        return (builtins() + custom(pid)).map { view(it, pid) }
+        return (builtins() + custom(pid) + repo(pid)).map { view(it, pid) }
     }
 
     private fun def(sid: String, pid: String? = null): SkillDef =
-        (builtins() + custom(pid)).firstOrNull { it.id == sid } ?: throw NotFound("No skill called \"$sid\"")
+        (builtins() + custom(pid) + repo(pid)).firstOrNull { it.id == sid } ?: throw NotFound("No skill called \"$sid\"")
 
     fun detail(sid: String, pid: String?): SkillDetail {
         val d = def(sid, pid)
@@ -206,6 +270,7 @@ class SkillService(
         projects.require(pid)
         val d = def(sid, pid)
         if (d.projectId == null) throw Conflict("keel's own skills cannot be removed", "Turn it off for this project, or take it off its agents.")
+        if (d.source == "repo") throw Conflict("$sid is a skill in the repo", "Remove it there, or turn off Skills › Found in the repo.")
         if (d.projectId != pid) throw NotFound("No skill called \"$sid\" in this project")
         jdbc.update("DELETE FROM custom_skills WHERE id = ? AND project_id = ?", sid, pid)
         jdbc.update("DELETE FROM skill_assign WHERE project_id = ? AND skill_id = ?", pid, sid)
@@ -216,6 +281,7 @@ class SkillService(
         val d = def(sid, pid)
         if (body != null) {
             if (d.projectId == null) throw Conflict("keel skills cannot be edited here", "Make your own skill and assign it instead.")
+            if (d.source == "repo") throw Conflict("$sid is a skill in the repo", "Change its SKILL.md in the repo: keel reads it from there.")
             jdbc.update("UPDATE custom_skills SET body = ? WHERE id = ?", body, sid)
         }
         if (agents != null || whenText != null || enabled != null) {
@@ -266,7 +332,7 @@ class SkillService(
 
     /** SKILL.md bodies of the skills assigned to an agent, joined, for the engine to add to its prompt. */
     fun textFor(pid: String, skillIds: List<String>): String {
-        val all = (builtins() + custom(pid)).associateBy { it.id }
+        val all = (builtins() + custom(pid) + repo(pid)).associateBy { it.id }
         return skillIds.mapNotNull { all[it] }.joinToString("\n\n---\n\n") { it.body.trim() }
     }
 
@@ -300,6 +366,9 @@ class SkillService(
         }
 
         const val MAX_IMPORT = 256 * 1024
+
+        /** Where the engine records the repo's own rules and skills (init, knowledge refresh). */
+        const val RECORD = ".keel/project-rules.json"
 
         fun sha256(text: String): String = Hash.sha256Hex(text)
 

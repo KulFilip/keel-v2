@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RestController
 
 data class NewSkill(val name: String = "", val kind: String = "knowledge", val stack: String = "any", val body: String = "")
 data class SkillImport(val url: String? = null, val body: String? = null)
+data class RepoSwitch(val on: Boolean = true)
 data class SkillPatch(val agents: List<String>? = null, val `when`: String? = null, val body: String? = null, val enabled: Boolean? = null)
 
 @RestController
@@ -34,6 +35,14 @@ class SkillController(private val skills: SkillService) {
     @PutMapping("/projects/{pid}/skills/{sid}")
     fun update(@PathVariable pid: String, @PathVariable sid: String, @RequestBody body: SkillPatch): Skill =
         skills.update(pid, sid, body.agents, body.`when`, body.body, body.enabled)
+
+    /** keel 0.18.57 Skills › Found in the repo: the repo's own instructions and skills (found at init and at a knowledge refresh). */
+    @GetMapping("/projects/{pid}/skills/repo")
+    fun repo(@PathVariable pid: String): RepoSkills = skills.repoView(pid)
+
+    /** Loads the repo's skills for their agents (on), or for none (off): the project's setting repo_skills. */
+    @PutMapping("/projects/{pid}/skills/repo")
+    fun repoSwitch(@PathVariable pid: String, @RequestBody body: RepoSwitch): RepoSkills = skills.repoSwitch(pid, body.on)
 
     /** keel 0.18.6: remove one of the project's own skills (written here, imported, or from the marketplace). */
     @DeleteMapping("/projects/{pid}/skills/{sid}")
