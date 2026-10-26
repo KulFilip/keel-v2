@@ -17,6 +17,14 @@
    "action": "project_rules"
   },
   {
+   "id": "config_check",
+   "kind": "code",
+   "name": "are the configured commands still runnable",
+   "phase": "memory",
+   "action": "config_check",
+   "soft": true
+  },
+  {
    "id": "librarians",
    "kind": "parallel",
    "name": "librarian per section",
@@ -47,6 +55,7 @@
   "main": [
    "stale_scan",
    "project_rules",
+   "config_check",
    "librarians",
    "memory_check",
    "commit"
@@ -62,6 +71,10 @@
      },
      {
       "step": "project_rules",
+      "side": []
+     },
+     {
+      "step": "config_check",
       "side": []
      },
      {

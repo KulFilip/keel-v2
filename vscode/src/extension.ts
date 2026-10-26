@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { say } from "./api/client";
 import type { InboxItem, PrSummary, ReviewThread } from "./api/models";
 import { Auth } from "./core/auth";
+import { refDocs } from "./core/files";
 import { startFlow } from "./core/startFlow";
 import { KeelState } from "./core/state";
 import { StatusItem } from "./core/statusBar";
@@ -61,6 +62,7 @@ export function activate(ctx: vscode.ExtensionContext): KeelExtension {
   reviewView.description = reviewTree.filter();
 
   ctx.subscriptions.push(
+    refDocs(),
     state,
     review,
     keelbot,

@@ -20,9 +20,10 @@ import { IndexItem } from "./IndexStatus";
 import { FileIcon, Icon, extOf, languageName } from "./icons";
 import { DocsView, KeelView, MemoryView, ruleText } from "./KeelView";
 import {
-  bytes, closeTab, decoOf, FOCUS_KEYS, IDE_KEYS, ideActionFor, nameOf, openTab, parseDeepLink, parseToolLink, pinTab, repoHash, retargetTab,
-  setView, stepTab, tabId, webUrl, type EditorTab, type OpenSpec, type Tabs, type View,
+  bytes, closeTab, decoOf, FOCUS_KEYS, IDE_KEYS, ideActionFor, nameOf, openTab, parseDeepLink, parseToolLink, pinTab, refLabel, refOfQuery,
+  repoHash, retargetTab, setView, stepTab, tabId, webUrl, type EditorTab, type OpenSpec, type Tabs, type View,
 } from "./model";
+import { FileError, RefFilePane } from "./RefFile";
 import { logTitle, openLog, setLogBranch } from "./gitLog";
 import { LogTab } from "./Log";
 import { QuickOpen } from "./QuickOpen";
@@ -84,7 +85,7 @@ const session = typeof sessionStorage !== "undefined" ? sessionStorage : undefin
 const local = typeof localStorage !== "undefined" ? localStorage : undefined;
 
 /** The Code page's own tab kinds; any other kind is a part's (slot code.tab). v0.15.2 "log": the Git log. */
-const OWN_TABS = new Set(["file", "commit", "docs", "memory", "doctor", "log"]);
+const OWN_TABS = new Set(["file", "commit", "ref", "docs", "memory", "doctor", "log"]);
 
 function tabTitle(t: EditorTab, kinds: CodeTabItem[]): string {
   if (t.kind === "docs") return "Files keel wrote";
@@ -94,6 +95,7 @@ function tabTitle(t: EditorTab, kinds: CodeTabItem[]): string {
   const theirs = kinds.find((k) => k.id === t.kind);
   if (theirs) return theirs.tabTitle(t.path);
   if (t.kind === "commit") return `${nameOf(t.path)} @ ${t.sha?.slice(0, 7)}`;
+  if (t.kind === "ref") return `${nameOf(t.path)} @ ${refLabel(t.ref ?? "")}`;
   return nameOf(t.path);
 }
 
@@ -203,6 +205,15 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
     setScreen("editor");
   }, []);
 
+  // 0.18.57 a file at a line as `ref` has it (a link from an answer, a review or a flow made on that branch): the
+  // checked-out branch (or no ref) opens the work tree's file, any other branch, review ref or commit a read-only "ref" tab
+  const branchRef = useRef<string | null>(repo?.branch ?? null);
+  branchRef.current = repo?.branch ?? null;
+  const openAt = useCallback((path: string, line?: number, ref?: string | null, pin = true) => {
+    if (ref && ref !== branchRef.current && ref !== `refs/heads/${branchRef.current}`) open({ kind: "ref", path, ref, view: "code" }, { pin, line });
+    else open({ path, view: "code" }, { pin, line });
+  }, [open]);
+
   // v0.15.3 a Markdown file opens rendered (Preview); Code and Changes are one click away
   const openFile = useCallback((path: string, pin = false, view?: View) => open({ path, view: view ?? (canPreview(path) ? "preview" : undefined) }, { pin }), [open]);
   // v0.15.2 the Git log: one tab, on a branch ("" = the current one)
@@ -230,14 +241,14 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
       }
       const file = r.page === "repo" ? parseDeepLink(r.arg) : null;
       if (file) {
-        open({ path: file.path, view: "code" }, { line: file.line });
+        openAt(file.path, file.line, refOfQuery(r.query), false);
         setReveal((n) => n + 1);
       } else if (link) waitingLink.current = link;
     };
     follow();
     window.addEventListener("hashchange", follow);
     return () => window.removeEventListener("hashchange", follow);
-  }, [open, pid]);
+  }, [openAt, pid]);
 
   // a tool window's link can come before its view: a plugin's web part (Code Review) registers it once it has loaded,
   // and this page may open first. The link waits, and opens the view when it is there.
@@ -256,7 +267,8 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
   // the URL follows the active tab (replaceState: no history entry per click)
   useEffect(() => {
     if (route.page !== "repo") return;
-    const want = active?.kind === "file" ? repoHash(active.path, links[active.id]) : "#/repo";
+    const want = active?.kind === "file" ? repoHash(active.path, links[active.id])
+      : active?.kind === "ref" ? repoHash(active.path, links[active.id], active.ref) : "#/repo";
     if (location.hash !== want) {
       try {
         history.replaceState(history.state, "", want);
@@ -530,10 +542,31 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
       : <Notice title={`${tabTitle(active, tabKinds)} cannot be shown.`}>The part of keel that opens it is not here.</Notice>;
   } else if (active.kind === "commit") {
     body = <DiffPane pid={pid} path={active.path} against="head" sha={active.sha} mode={diffMode} />;
+  } else if (active.kind === "ref") {
+    const id = active.id;
+    const toFile = () => setTabs((t) => retargetTab(t, id, { kind: "file", path: active.path, view: "code" }));
+    body = <RefFilePane key={id} pid={pid} path={active.path} refName={active.ref ?? ""} wrap={wrap} target={targets[id] ?? null} cmd={cmd}
+      onCursor={setCursor} onLink={(n) => setLinks((x) => ({ ...x, [id]: n }))} scrollKey={`${pid}:${id}`}
+      onCurrent={() => {
+        // the ref is the checked-out branch: the work tree's file, at the same line
+        const line = targets[id]?.line;
+        toFile();
+        if (line) setTargets((x) => ({ ...x, [active.path]: { line, n: Date.now() } }));
+      }}
+      onCheckedOut={() => {
+        const line = targets[id]?.line ?? links[id];
+        toFile();
+        if (line) setTargets((x) => ({ ...x, [active.path]: { line, n: Date.now() } }));
+        onRepoChanged?.();
+        void changes.reload();
+      }} />;
   } else if (view === "diff") {
     body = <DiffPane pid={pid} path={active.path} against={against} mode={diffMode} />;
   } else if (meta.error && !metaData) {
-    body = <div className="ed-note"><ErrorBox error={meta.error} onRetry={() => void meta.reload()} /></div>;
+    // 0.18.57 a file this folder does not have: keel looks for it on the branches and reviews it knows
+    const line = targets[active.id]?.line;
+    body = <FileError key={active.id} pid={pid} path={active.path} error={meta.error} onRetry={() => void meta.reload()}
+      onOpenRef={(ref) => openAt(active.path, line, ref)} />;
   } else if (!metaData) {
     body = <div className="ed-note"><span className="pg-spin" role="status">Opening {nameOf(active.path)}…</span></div>;
   } else if (kind === "image" && !(extOf(metaData.path) === "svg" && view === "code")) {
@@ -564,7 +597,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
   const lines = text && "text" in text ? text.text : "";
   const eol = lines.includes("\r\n") ? "CRLF" : "LF";
   const lineCount = useMemo(() => (lines ? lines.split("\n").length : 0), [lines]);
-  const segs = active && (active.kind === "file" || active.kind === "commit") ? active.path.split("/") : [];
+  const segs = active && (active.kind === "file" || active.kind === "commit" || active.kind === "ref") ? active.path.split("/") : [];
 
   const toolbar = fileTab && active && (
     <div className="ed-tools" role="toolbar" aria-label="Editor">
@@ -755,7 +788,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
               }} />
           )}
           <assistant.component pid={pid} openFile={activeFile} selection={helperSel} onClearSelection={() => setHelperSel(null)} focusKey={helperFocus}
-            prefill={prefill} onOpenFile={(p, line) => open({ path: p, view: "code" }, { pin: true, line })} onOpenDiff={(p) => openFile(p, true, "diff")}
+            prefill={prefill} onOpenFile={(p, line, ref) => openAt(p, line, ref)} onOpenDiff={(p) => openFile(p, true, "diff")}
             onClose={() => setHelperOpen(false)} />
         </div>
       )}

@@ -5,13 +5,17 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 // keel's own app and test harness: this test runs the Tasks page inside keel's web, as keel loads it
 import { App } from "../../../../web/src/App";
 import type { InboxItem, InboxView } from "../../../../web/src/inboxApi";
 import { db, server } from "../../../../web/src/test/setup";
 
 const calls = (method: string, path: string) => db.calls.filter((c) => c.method === method && c.path === path);
+
+// 0.18.57 these tests run the classic Tasks page ("Classic view", kept for one release); the new page's are in
+// taskBoard.test.tsx, taskPanel.test.tsx and automationsPanel.test.tsx
+beforeEach(() => localStorage.setItem("keel2.tasks.classic", "true"));
 const main = () => within(document.getElementById("main")!);
 
 async function openTasks(hash = "#/tasks") {
@@ -120,6 +124,28 @@ describe("Task drawer: uncommitted files", () => {
     await user.click(await within(start).findByRole("button", { name: "Ask the Doctor what to do with these files" }));
     expect(await within(start).findByText("Build output, editor and tool folders")).toBeInTheDocument();
     expect(within(start).getAllByText(".git/info/exclude", { exact: false }).length).toBeGreaterThan(0);
+  });
+});
+
+describe("Task drawer: one owner per task (0.18.57)", () => {
+  it("a start on a ticket another flow works on names it; Start anyway sends force", async () => {
+    server.use(http.post("/api/tasks/:id/start", async ({ request }) => {
+      const b = await request.clone().json() as Record<string, unknown>;
+      if (b.force) return undefined;
+      return HttpResponse.json({ error: "Someone already works on this: flow ABC-1: Rank players at red works on the same ticket ABC-1",
+        owners: [{ kind: "flow", id: "t-9", who: "flow ABC-1: Rank players at red", why: "the same ticket ABC-1" }] }, { status: 409 });
+    }));
+    const user = userEvent.setup();
+    await openTasks();
+    await user.click(await screen.findByRole("button", { name: "ABC-1: Rank players weekly" }));
+    const d = await screen.findByRole("dialog", { name: "ABC-1 · Rank players weekly" });
+    const start = within(d).getByRole("region", { name: "Start a flow" });
+    await waitFor(() => expect(within(start).getByLabelText("Workflow")).toHaveValue("feature"));
+    await user.click(within(start).getByRole("button", { name: "Start flow" }));
+    expect(await within(start).findByTestId("tk-owners")).toHaveTextContent("flow ABC-1: Rank players at red — the same ticket ABC-1");
+    await user.click(within(start).getByLabelText(/Start anyway — two agents on one task/));
+    await user.click(within(start).getByRole("button", { name: "Start flow" }));
+    await waitFor(() => expect(calls("POST", "/api/tasks/tk_1/start").some((c) => (c.body as Record<string, unknown>).force === true)).toBe(true));
   });
 });
 

@@ -86,6 +86,18 @@ def review_diff(api: KeelApi, path: str | None = None, project: str | None = Non
     return "\n".join(out) or "No change."
 
 
+def _coverage(r: dict) -> list[str]:
+    """keel 0.18.57: a run that did not read every changed file says so, with the files (the first 20)."""
+    c = r.get("coverage") or {}
+    if not c.get("known"):
+        return []
+    if not r.get("partial"):
+        return [f"  read all {c.get('files')} changed file(s)"]
+    unread = c.get("unread") or []
+    return [f"  PARTIAL: read {c.get('read')} of {c.get('files')} changed file(s); not read: " + ", ".join(unread[:20])
+            + (f" … {len(unread) - 20} more" if len(unread) > 20 else "")]
+
+
 def review_notes(api: KeelApi, project: str | None = None, pr: int | None = None, branch: str | None = None) -> str:
     pid, v = _open(api, project, pr, branch)
     ai = api.get(f"/projects/{pid}/review/ai", key=v["key"]) or {}
@@ -98,6 +110,7 @@ def review_notes(api: KeelApi, project: str | None = None, pr: int | None = None
         out.append(f"overview: {o.get('status')}" + (" (the code moved on since)" if o.get("stale") else "") + (f" · {o['error']}" if o.get("error") else ""))
         if r.get("summary"):
             out += [f"  {r['summary']}", f"  risk {r.get('risk') or '-'}: {r.get('risk_why') or ''} · effort {r.get('effort', '-')}/5"]
+            out += _coverage(r)
             out += [f"  {f['path']}: {f['what']}" for f in r.get("files") or []]
     f = ai.get("findings")
     if not f:
@@ -106,6 +119,7 @@ def review_notes(api: KeelApi, project: str | None = None, pr: int | None = None
         r = f.get("result") or {}
         found = r.get("findings") or []
         out.append(f"findings: {f.get('status')} · {len(found)} found" + (f" · {f['error']}" if f.get("error") else ""))
+        out += _coverage(r)
         out += [f"  {x.get('severity')}  {x.get('path') or '-'}:{x.get('line') or '-'}  {x.get('title')} ({x.get('check', '')})\n    {x.get('why', '')}"
                 for x in found]
     return "\n".join(out)

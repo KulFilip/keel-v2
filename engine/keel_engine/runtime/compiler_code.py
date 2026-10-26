@@ -16,6 +16,8 @@ from .state import FlowState, merge_unlocks, normalize_unlocks
 from langgraph.errors import GraphBubbleUp
 from langgraph.graph import END
 
+HISTORY_CHECKS = {"audit", "trace", "trace_strict"}   # checks that only read the branch's history
+
 from . import compiler as _c      # the compiler module's own names (looked up when called: tests patch some)
 
 
@@ -228,7 +230,9 @@ class CodeMixin:
         st = {**state, "gates": gates}
         notes = [r.note]
         for action in rest:
-            res = await _c.run_action(action, self._action_input(st, ac))
+            ai = self._action_input(st, ac)
+            ai.marker = "already-met"       # 0.18.57 test(<AC>) with Keel-Path: already-met: the ship audit accepts it
+            res = await _c.run_action(action, ai)
             if not res.ok or res.ask:
                 # A refused commit is an ordinary failed check (it goes back to the red agent).
                 return await self._check_failed(i, step, st, ac, res, {**upd, "gates": gates})
@@ -425,6 +429,8 @@ class CodeMixin:
         question's answer to another.
         """
         q = r.ask
+        if q.get("type") == "audit":
+            return self._audit_answer(step, state, r, upd)
         if q.get("choices"):
             return self._choice_answer(i, step, state, r, upd)
         kind = {"deps": "dependency", "escalate": "escalate", "secrets": "secrets", "readonly": "readonly",
@@ -485,6 +491,39 @@ class CodeMixin:
         # 0.19.x the override names its triggers: it silences those, not a different one a later commit trips
         gates["log"].append(rule_checks.override_line(q.get("ids") or [], why or q["why"]))
         return {**upd, "gates": gates, "note": f"stays a small change: {why}"}, step.id
+
+    def _audit_answer(self, step: Step, state: FlowState, r: ActionResult, upd: dict):
+        """0.18.57 the ship audit found problems in the branch's history. Running it again unchanged finds them again
+        (a real run asked "Approve fix" over and over), so every answer changes what it checks: remote = compare with
+        the remote base (commits merged upstream are not this branch's), accept = these exact problems are accepted
+        with the reason (data.audit_accepted, recorded with the verdict), stop = the person fixes the commits."""
+        q = r.ask
+        question = {"step": step.id, "kind": q["kind"], "title": q["title"], "detail": q["detail"],
+                    "options": q.get("options") or _c.OPTIONS}
+        for k in ("labels", "choices", "choice_info"):
+            if q.get(k):
+                question[k] = q[k]
+        answer, extra = self._ask(state, question, gate="failure")
+        upd = {**upd, **extra}
+        decision = answer.get("decision", "reject")
+        why = (answer.get("why") or "").strip()
+        choice = (answer.get("payload") or {}).get("choice") or ("accept" if decision == "approve" else "stop")
+        if q.get("choices") and decision == "approve" and not (answer.get("payload") or {}).get("choice"):
+            choice = "remote"           # the recommended one is what a plain approve takes
+        gates = deep_gates(state)
+        self.ctx.emit("gate.decided", step=step.id, data={"gate": q["title"], "decision": decision, "choice": choice, "why": why})
+        data = {**(state.get("data") or {}), **(upd.get("data") or {})}
+        if choice == "remote" and q.get("upstream"):
+            data["audit_base"] = q["upstream"]
+            gates["log"].append(f"audit: compare with {q['upstream']} instead of {q.get('base')}")
+            return {**upd, "gates": gates, "data": data, "note": f"the audit compares with {q['upstream']}"}, step.id
+        if choice == "accept":
+            reason = why or "accepted at the audit gate"
+            data["audit_accepted"] = {**(data.get("audit_accepted") or {}), **{p: reason for p in q.get("problems") or []}}
+            gates["log"].append(f"audit accept {len(q.get('problems') or [])} problem(s): {reason}"[:300])
+            return {**upd, "gates": gates, "data": data, "note": f"audit problems accepted: {reason}"[:300]}, step.id
+        gates["log"].append("audit stop" + (f": {why}" if why else ""))
+        return {**upd, "gates": gates, "status": "stopped", "error": r.note, "note": f"stopped: {r.note}"[:300]}, END
 
     async def _ladder(self, count: int, i: int, step: Step, state: FlowState, target: str, feedback: str) -> tuple[str, dict, str]:
         """v0.17.5 the stall ladder of a criterion's check, one rung per failed round:
@@ -656,8 +695,13 @@ class CodeMixin:
         reject = "reject to mark this item failed and go on with the next one" if in_items else "reject to stop the flow"
         who = (ac or {}).get("id") or step.id
         tries, limit = flow_actions.stuck_tries(state, who), flow_actions.sendback_limit(self.ctx.settings)
+        again = f"Approve to try again, {reject}."
+        if set(step.actions()) & HISTORY_CHECKS:
+            # 0.18.57 a check of the branch's commits finds the same thing again unless a commit changes them first
+            again = (f"This check reads the branch's commits: trying again finds the same thing unless the branch "
+                     f"changes first (a new commit, a rebase). Approve to try again after that, {reject}.")
         question = {"step": step.id, "kind": "fix", "title": f"{step.name} keeps failing",
-                    "detail": f"{r.note}\n\n{r.detail[-1500:]}\n\nApprove to try again, {reject}.", "options": _c.OPTIONS}
+                    "detail": f"{r.note}\n\n{r.detail[-1500:]}\n\n{again}", "options": _c.OPTIONS}
         if tries >= limit:
             # 0.18.12 past settings.sendback_limit tries: no "try again", only the way out
             question.update(options=["reject"], labels={"reject": "Skip this item" if in_items else "Stop"},

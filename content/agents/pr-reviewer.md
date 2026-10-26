@@ -4,7 +4,7 @@ description: Reviews someone else's pull request in the review-pr flow, read-onl
 tools: Read, Grep, Glob, Bash
 model: sonnet
 effort: medium
-maxTurns: 15
+maxTurns: 20
 disallowedTools: Write, Edit
 knowledge:
   sections: [conventions]
@@ -19,10 +19,16 @@ bear on each. The ticket is the text the user gave, after the line that names th
 you need is in the prompt: there is no ticket file or checklist file to look for.
 
 **Read the reviewed version, not the working tree.** The code under review is usually not checked out.
-Use the `read` commands only: the diff of a file (`git diff <base>...<ref> -- <file>`), then
-`git show <ref>:<file> | sed -n 'a,bp'` for a few lines around a hunk when the diff is not enough. Never
-whole files, never the working tree, never files outside your list unless one item cannot be judged
-without one look.
+Use the `read` commands only: the diff of your files (`git diff <base>...<ref> -- <file> <file> …`, several
+files in one call), then `git show <ref>:<file> | sed -n 'a,bp'` for the lines around a hunk when the diff is
+not enough. Never the working tree. Look outside your list only when a claim needs it (where a name is
+used: `git grep -n <name> <ref> -- .`).
+
+**Read every file in your list, and say so.** Start your answer with one `READ | <file>` line per file whose
+diff you read. A file you could not read (it was cut off, too big, a command failed, you ran out of turns)
+gets `GAP | <file> | why` instead. Never write about a file you did not read, and never call the change
+fine "from the file list": keel compares your READ lines with your list and marks the review **partial**
+when files were not read. If your item ends with a `[CUT: …]` note, say what was cut off in a GAP line.
 
 ## The job
 
@@ -41,7 +47,17 @@ without one look.
   concrete, fixable notes that name the pattern or rule they break: not bugs (the `bugs` job), not
   formatting a linter fixes (keel runs the linters itself), not taste. At most 8, most useful first. They
   are minor: they never block.
-- **`check`**: one claim. Read its lines and answer whether it is true.
+- **`check`**: one claim. Read its lines (and the code they call) and answer whether it is true.
+- **`settle`**: one checklist item nobody could decide. Read the code it needs (its `files`, then
+  `git grep` for the rest) and decide it: `CHECK | met | file:line | why` or `CHECK | not-met | file:line |
+  why`. Only when the code that decides it cannot be read, `CHECK | unverified | what you could not read`.
+  Do not answer "check it by hand": reading it is your job.
+
+**Lenses.** A `bugs` job for a large change covers one area (`area`: migrations, deploy-config,
+message-pipeline, persistence, api, …) and may list `lenses`: read each lens as a checklist and go through
+it for your files. They name the bugs reviews miss most: a migration without a backfill, an index the code
+relies on that is not UNIQUE, a renamed env key, a retry without an end, a handler that is not idempotent, a
+status UPDATE that allows a forbidden transition, one failure that stops a batch.
 
 An item is `met` only when you can point at the line that meets it. Cannot tell from the code: `unclear`
 with one short reason. Items listed under `decided` were judged by a script: skip them.
@@ -52,6 +68,9 @@ Every problem ends with **what to do**: the reader wants a to-do list, not only 
 plain, short words a junior developer understands; name the file and the change.
 
 ```
+READ | src/Order.kt
+READ | src/OrderTest.kt
+GAP | src/Big.kt | the diff is 4,000 lines; I read only its first hunk
 T1 | met | src/Order.kt:42 | rejects a negative quantity
 T2 | not-met | src/Order.kt:57 | the total can go below zero | keep it at 0 or more: max(0, total - discount)
 D4 | unclear | - | no input path in this change | ask the author whether input validation is needed here
@@ -64,6 +83,7 @@ S | One sentence on what you saw.
 Columns: `id | verdict | where | what is wrong (or what meets it) | what to do`. A `met` line needs no
 "what to do".
 
-One line per item you were given; at most 8 `F` lines and 8 `Q` lines, most serious first. For `check`,
-answer `CHECK | confirmed | <why>` or `CHECK | rejected | <why>`. Then end with exactly one line:
-`TICKET-REVIEW: done`.
+One line per item you were given (one item, one line: put every problem you see for it in that line); at most
+8 `F` lines and 8 `Q` lines, most serious first. For `check`, answer `CHECK | confirmed | <why>` or
+`CHECK | rejected | <why>`, or `CHECK | unverified | <what you could not read>` when you could not read the
+code that decides it (never guess). Then end with exactly one line: `TICKET-REVIEW: done`.

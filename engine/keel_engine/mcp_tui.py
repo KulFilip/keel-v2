@@ -191,14 +191,23 @@ def agent(api: KeelApi, agent_id: str, project: str | None = None, steps: int = 
     return "\n".join(out)
 
 
-def agent_start(api: KeelApi, task: str, mode: str = "side", project: str | None = None) -> str:
-    """An agent of the person's own: a KeelBot chat in its own worktree (side) or one that only reads (ask)."""
+def agent_start(api: KeelApi, task: str, mode: str = "side", project: str | None = None, force: bool = False) -> str:
+    """An agent of the person's own: a KeelBot chat in its own worktree (side) or one that only reads (ask). 0.18.57 a
+    side agent on a task a flow or another side agent works on is refused with who; force starts it anyway."""
     if mode not in ("side", "ask"):
         raise ApiError("mode is side (its own worktree and branch) or ask (it only reads).")
     if not task.strip():
         raise ApiError("say what the agent should do.")
     p = _project(api, project)
-    s = api.post(f"/projects/{p['id']}/helper/sessions", {"mode": mode, "title": task.strip()[:60]}) or {}
+    try:
+        s = api.post(f"/projects/{p['id']}/helper/sessions",
+                     {"mode": mode, "title": task.strip()[:60], **({"force": True} if force else {})}) or {}
+    except ApiError as exc:
+        if exc.status == 409 and exc.body.get("owners"):
+            who = "; ".join(f"{o.get('who')} ({o.get('why')})" for o in exc.body["owners"])
+            raise ApiError(f"refused: someone already works on this: {who}. Wait for it or stop it; to start anyway call "
+                           "keel_agent_start again with force=true.", exc.status, exc.body) from exc
+        raise
     api.post(f"/projects/{p['id']}/helper/sessions/{_q(s['id'])}/turn", {"text": task.strip()})
     return (f"agent {s['id']} started: \"{s.get('title')}\" ({'its own worktree and branch' if mode == 'side' else 'it only reads'}). "
             f"keel_agent {s['id']} shows how it does; keel_agents lists every one.")

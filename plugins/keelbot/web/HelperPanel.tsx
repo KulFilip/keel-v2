@@ -11,8 +11,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
   ApiError, errorParts, go, keyLabel, Markdown, mergeSteps, ModelPicker, modelLabel, ProviderIcon, provLabel, rankFiles, shareFocus, StepView,
-  UI_FOCUS_EVENT, useApp, useLoad, usePages, useWide, type UiFocus, AskKeelBot, ANSWERS_PREFIX,
-  type GraphHit, type HelperCommand, type HelperDone, type HelperMention, type HelperMessage, type HelperMode,
+  UI_FOCUS_EVENT, useApp, useLoad, usePages, useWide, type UiFocus, AskKeelBot, ANSWERS_PREFIX, sourceRef,
+  type AnswerSource, type GraphHit, type HelperCommand, type HelperDone, type HelperMention, type HelperMessage, type HelperMode,
   type HelperSelection, type HelperSession, type JobStep, type Model,
 } from "@keel/web-sdk";
 import { AgentCard, CiCard, FlowCard, QuestionsCard, RuleCard, SkillCard, SlotCard, StackCard, splitActions, StartCard, WorkflowCard } from "./Actions";
@@ -31,7 +31,8 @@ type Props = {
   /** lines the person chose to ask about ("Ask about these lines" in the editor) */
   selection?: HelperSelection | null;
   onClearSelection?: () => void;
-  onOpenFile: (path: string, line?: number) => void;
+  /** 0.18.57 `ref`: the branch or commit the answer was made from (the file as that ref has it) */
+  onOpenFile: (path: string, line?: number, ref?: string | null) => void;
   /** Fix mode: open a changed file in the editor's Changes view */
   onOpenDiff?: (path: string) => void;
   onClose: () => void;
@@ -94,8 +95,12 @@ export function ToolFold({ calls, log }: { calls: ToolCall[]; log: string }) {
   );
 }
 
-/** An answer: Markdown whose `file:line` chips open the editor, and KeelBot's buttons (start a flow, save a workflow). */
-function Answer({ text, onOpen, pid, onAsk, answered, later }: { text: string; onOpen: (path: string, line?: number) => void; pid: string; onAsk: (t: string) => void;
+/** An answer: Markdown whose `file:line` chips open the editor, and KeelBot's buttons (start a flow, save a workflow).
+ *  0.18.57 a chip opens the file as the answer's `source` has it: the branch it was made on (a side session's branch, the
+ *  branch the folder was on then), or the ref KeelBot read that file from (`git show <ref>:<path>`). */
+export function Answer({ text, onOpen, pid, onAsk, answered, later, source }: { text: string; onOpen: (path: string, line?: number, ref?: string | null) => void; pid: string; onAsk: (t: string) => void;
+  /** 0.18.57 what the answer was made from */
+  source?: AnswerSource | null;
   /** keel 0.18.13 the chat's later message with the answers to this answer's questions (its QuestionsCard shows them) */
   answered?: string | null;
   /** 0.18.23 the person wrote a message after this answer: its suggested gate answer, not sent, is not offered any more */
@@ -106,13 +111,17 @@ function Answer({ text, onOpen, pid, onAsk, answered, later }: { text: string; o
       if (!fileLink(el.textContent ?? "")) return;
       el.setAttribute("role", "link");
       el.setAttribute("tabindex", "0");
-      el.title = `Open ${el.textContent} in the editor`;
+      const link = fileLink(el.textContent ?? "");
+      const ref = link ? sourceRef(source, link.path) : null;
+      el.title = `Open ${el.textContent}${ref ? ` as ${ref} has it` : ""} in the editor`;
+      if (ref) el.dataset.ref = ref;
+      else delete el.dataset.ref;
     });
-  }, [text]);
+  }, [text, source]);
   const go = (target: EventTarget | null) => {
     const el = (target as HTMLElement | null)?.closest?.(".cite");
     const link = el ? fileLink(el.textContent ?? "") : null;
-    if (link) onOpen(link.path, link.line);
+    if (link) onOpen(link.path, link.line, sourceRef(source, link.path));
     return !!link;
   };
   // 0.18.38 the tool calls an agent CLI printed before its answer: one folded line, the answer first
@@ -843,7 +852,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
         {messages.map((m) => m.role === "user" ? <UserMessage key={m.n} m={m} /> : (
           <div key={m.n} className={`hp-msg ${m.role === "note" ? "hp-note" : "hp-help"}`}>
             {m.role === "helper" && m.data.thinking && <ThinkingBlock text={m.data.thinking} ms={m.data.thinking_ms} answering />}
-            {m.role === "note" ? <p className="hp-text">{m.data.status === "stopped" ? "Stopped." : m.text}</p> : <Answer text={m.text} onOpen={onOpenFile} pid={pid} onAsk={(t) => void send(t)} answered={answeredBy(messages, m.n)}
+            {m.role === "note" ? <p className="hp-text">{m.data.status === "stopped" ? "Stopped." : m.text}</p> : <Answer text={m.text} onOpen={onOpenFile} pid={pid} onAsk={(t) => void send(t)} answered={answeredBy(messages, m.n)} source={m.data.source}
               later={messages.some((x) => x.n > m.n && x.role === "user")} />}
             {m.call_id && <TurnSteps callId={m.call_id} live={liveSteps[m.call_id] ?? []} running={false} />}
             {m.role === "helper" && (
@@ -860,7 +869,8 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
             {/* keel 0.18.2 the answer as KeelBot writes it (helper.delta); the stored answer replaces it */}
             {liveText?.[runningCall] && (
               <div className="hp-stream" aria-live="polite" aria-label="KeelBot is writing">
-                <Answer text={liveText[runningCall]} onOpen={onOpenFile} pid={pid} onAsk={(t) => void send(t)} />
+                <Answer text={liveText[runningCall]} onOpen={onOpenFile} pid={pid} onAsk={(t) => void send(t)}
+                  source={sess.data?.branch ? { ref: sess.data.branch } : null} />
               </div>
             )}
           </div>

@@ -113,6 +113,19 @@ const changes = () =>
   );
 
 describe("run history", () => {
+  it("marks a failed or stopped run that a newer run of the same change replaced", async () => {
+    seed();
+    db.runs[PID] = db.runs[PID].map((r) =>
+      r.thread_id === "th_older" ? { ...r, source: "pr:20", replaced_by: "th_new" } : r,
+    );
+    location.hash = "#/flow";
+    render(<App />);
+    const runs = await screen.findByRole("region", { name: "Runs" });
+    const older = within(runs).getByRole("listitem", { name: "Run Older stop" });
+    expect(older).toHaveTextContent("replaced by a newer run");
+    expect(within(runs).getAllByText("replaced by a newer run")).toHaveLength(1);
+  });
+
   it("lists every run, newest first, with its status, time, cost, result and branch, only while no flow runs or waits", async () => {
     seed();
     location.hash = "#/flow";

@@ -326,8 +326,12 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
         item = req.item or {}
         if item.get("job") == "check":
             return None, "", "CHECK | confirmed | the lines say what the claim says\nTICKET-REVIEW: done", {}
-        files = [str(f).split(" ")[0] for f in item.get("files") or []] or ["src/scores/__init__.py"]
-        lines = [f"{it['id']} | met | {(it.get('files') or files)[0]}:1 | the change does it" for it in item.get("items") or []]
+        if item.get("job") == "settle":
+            where = (item.get("files") or ["src/scores/__init__.py"])[0]
+            return None, "", f"CHECK | met | {where}:1 | read the code: it does it\nTICKET-REVIEW: done", {}
+        files = [str(f).split(" ")[0] for f in item.get("files") or [] if not str(f).startswith("…")] or ["src/scores/__init__.py"]
+        lines = [f"READ | {f}" for f in files]    # keel 0.18.57: a reviewer names the files it read
+        lines += [f"{it['id']} | met | {(it.get('files') or files)[0]}:1 | the change does it" for it in item.get("items") or []]
         if item.get("job") in ("all", "bugs"):
             lines.append(f"F | minor | {files[0]}:1 | the new name hides what it counts | name it after what it counts")
         if item.get("job") in ("all", "quality"):

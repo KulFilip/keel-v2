@@ -605,6 +605,16 @@ def _commit(a: ActionInput) -> ActionResult:
     cfg = rules.load_config(a.root)
     msg = f"docs(HUNT-{run['run']}): bug hunt: {c['proven']} proven, {c['unproven']} suspected"
     ident, trailer = commit_args(a.root, a.settings, cfg)
+    # 0.18.57 the project's commit style (git.commit_template or its ticket style), keel's own form as Keel-Ref
+    from . import commit_style
+    from .actions import ticket_key
+
+    tpl, _src = commit_style.template(a.root, cfg)
+    if tpl:
+        line = commit_style.render(tpl, "docs", f"HUNT-{run['run']}",
+                                   f"bug hunt: {c['proven']} proven, {c['unproven']} suspected", ticket_key(a))
+        msg, _rest = commit_style.fit(line, 72)
+        trailer = ["-m", "\n".join([f"{commit_style.REF}: docs(HUNT-{run['run']})", *trailer[1:]])]
     r = git.git(a.root, *ident, "commit", "-q", "-m", msg, *trailer, "--", folder)
     if r.returncode != 0:
         git.git(a.root, "reset", "-q", "--", folder)

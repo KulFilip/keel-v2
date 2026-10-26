@@ -88,6 +88,8 @@ export type RunRow = {
   error: string | null; created_at: string; updated_at: string;
   /** v0.15.4 what it cost, and whether it is the project's newest flow (only that one, when stopped, can be resumed) */
   cost_usd?: number; latest?: boolean;
+  /** 0.18.57 what it works on (review-pr: pr:20), and the newer run of the same source that replaced this failed one */
+  source?: string | null; replaced_by?: string | null;
 };
 /** v0.9.0: keel's check of a workflow YAML that is not saved yet (KeelBot's new workflow). */
 export type WorkflowCheck = {
@@ -131,6 +133,9 @@ export type AcOrder = { ids: string[]; from: "spec" | "plan" | "keel" | "person"
 export type ThreadState = {
   /** v0.17.4 the criteria (acs) are in build order; where it came from */
   ac_order?: AcOrder;
+  /** 0.18.57 the branch or ref the flow's citations are about: a worktree flow's branch, the reviewed PR's head ref
+   *  (refs/keel/review-pr/7) or branch; null: the project folder's checkout */
+  source_ref?: string | null;
   thread_id: string;
   project_id: string;
   workflow_id: string;
@@ -313,6 +318,11 @@ export type BoardFlow = {
 export type FlowBoard = { flows: BoardFlow[]; overlaps: { file: string; flows: string[] }[]; conflicts: { a: string; b: string; files: string[] }[];
   order: string[] };
 export type FlowWhere = "folder" | "worktree" | "auto";
+/** 0.18.57 what a start should know first (GET /projects/{pid}/start-check): can a worktree flow run the tests (no when
+ *  they run in a container that sees only the project folder), and how the local base branch differs from its remote. */
+export type StartCheck = { worktree?: { ok: boolean; reason?: string; service?: string | null }; base?: string | null };
+/** 0.18.57 who already works on a task (a refused start's `owners`) */
+export type TaskOwner = { kind: "flow" | "side"; id: string; who: string; why: string };
 
 /** v0.8.0 quality runs: an eval set (content/evals) and its cases. */
 export type EvalSet = { name: string; description: string; project: string; problems: string[];
@@ -797,9 +807,17 @@ export type HelperMessage = {
     /** 0.18.19 part of an answer /undo took back (kept, shown dim); final: a newer message came, /redo cannot bring it back */
     reverted?: boolean; final?: boolean;
     /** 0.18.23 an answer: the mode it ran in, and the model's thinking (kept for a reload, never sent to the model) */
-    mode?: string; thinking?: string; thinking_ms?: number };
+    mode?: string; thinking?: string; thinking_ms?: number;
+    /** 0.18.57 an answer: what it was made from (its file:line links open the file as that ref has it) */
+    source?: AnswerSource };
   at: string;
 };
+/** 0.18.57 The branch (or commit) an answer was made from, the side session's worktree, and the refs it read files of
+ *  with `git show <ref>:<path>` (a PR head, another branch): `paths` maps such a path to its ref. */
+export type AnswerSource = { ref?: string | null; sha?: string | null; worktree?: string | null; paths?: Record<string, string> };
+/** The ref a `path` cited in an answer belongs to: the ref it was read from, else the answer's own. */
+export const sourceRef = (s: AnswerSource | null | undefined, path: string): string | null =>
+  s?.paths?.[path] ?? s?.paths?.[path.replace(/^\.\//, "")] ?? s?.ref ?? null;
 export type HelperSession = {
   id: string; project: string; root: string; mode: HelperMode; title: string; model: Model;
   status: "idle" | "running" | "failed"; error?: string | null; thread_id?: string | null; grants?: string[];
@@ -1126,8 +1144,13 @@ export const api = {
     allow_fake?: boolean; allow_dirty?: boolean; request?: string; options?: Record<string, unknown>; run_mode?: RunMode; where?: FlowWhere;
     /** B8 continue: stay on the branch the project folder is on (default: a new branch from the base branch) */
     branch?: "new" | "continue";
+    /** 0.18.57 start although another flow or side agent works on the same ticket, branch or files */
+    force?: boolean;
   }) =>
     post<ThreadState>(`/projects/${e(pid)}/flows`, body),
+  startCheck: (pid: string) => get<StartCheck>(`/projects/${e(pid)}/start-check`),
+  /** 0.18.57 "Ignore this path": an untracked path into .git/info/exclude (this computer only) */
+  excludePath: (pid: string, path: string) => post<DoctorApplied>(`/projects/${e(pid)}/doctor/workspace/exclude`, { path }),
   resume: (tid: string, decision: "approve" | "reject", why?: string, payload?: Record<string, unknown>) =>
     post<ThreadState>(`/threads/${e(tid)}/resume`, { decision, ...(why ? { why } : {}), ...(payload ? { payload } : {}) }),
   stopThread: (tid: string) => post<ThreadState>(`/threads/${e(tid)}/stop`),

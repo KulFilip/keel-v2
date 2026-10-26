@@ -10,7 +10,8 @@ import {
   type KeelSdk,
 } from "@keel/web-sdk";
 import { TaskInboxCard, TASK_ITEM_KINDS } from "./TaskInboxCard";
-import { TasksPage, tasksLauncher } from "./Tasks";
+import { tasksLauncher } from "./Tasks";
+import { TasksPage } from "./TaskBoard";
 
 /** The Tasks page, its launcher results and its Inbox cards: the same id, label, group, place and icon as keel 0.15.1. */
 export function setup(sdk: KeelSdk) {

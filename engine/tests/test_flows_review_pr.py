@@ -89,12 +89,44 @@ def test_the_tickets_checklist_is_its_done_section_or_its_checkboxes():
 
 # ------------------------------------------------------------------ stop rules
 
+def refused(client, repo, request, **extra):
+    """A start review-pr refuses before any run exists: (status, error)."""
+    before = thread_count(client)
+    body = {"project_id": "demo", "root": str(repo), "workflow": get_template("review-pr").model_dump(), "title": "Review",
+            "models": {"default": {"provider": "fake", "mode": "api", "model": "fake"}},
+            "settings": {"gates_mode": "every-ac", "cap_tokens": 0, "on_cap": "pause"}, "mcp": [], "skills": {},
+            "request": request, **extra}
+    r = client.post("/threads", json=body)
+    assert r.status_code >= 400, r.text
+    assert thread_count(client) == before                  # no run was created
+    return r.status_code, r.json()["error"]
+
+
+def thread_count(client) -> int:
+    eng = client.app.state.engine
+
+    async def count():
+        cur = await eng.conn.execute("select count(*) from keel_threads")
+        return (await cur.fetchone())[0]
+
+    return client.portal.call(count)
+
+
+def test_a_start_without_a_reachable_change_is_refused_before_a_run_exists(client, repo, monkeypatch):
+    seen = answers(monkeypatch, {})
+    code, err = refused(client, repo, "please review")
+    assert code == 400 and err == "Which change should keel review? Name a PR or a branch."
+    code, err = refused(client, repo, "branch: nope\n")
+    assert code == 409 and 'No branch "nope"' in err
+    gh_recorder(monkeypatch, {"state": "OPEN", "isDraft": True, "baseRefName": "main", "headRefName": "x"})
+    assert "PR #7 is a draft" in refused(client, repo, "#7\n")[1]
+    gh_recorder(monkeypatch, {"state": "MERGED", "isDraft": False, "baseRefName": "main"})
+    assert "PR #7 is merged" in refused(client, repo, "#7\n")[1]
+    assert seen == []
+
+
 def test_prep_stops_before_any_agent(client, repo, monkeypatch):
     seen = answers(monkeypatch, {})
-    s = wait(client, review(client, repo, request="please review"))
-    assert s["status"] == "stopped" and "Name a PR or a branch" in s["error"]
-    s = wait(client, review(client, repo, request="branch: nope\n"))
-    assert s["status"] == "stopped" and 'No branch "nope"' in s["error"]
     git(repo, "branch", "same")
     s = wait(client, review(client, repo, request="branch: same\n"))
     assert s["status"] == "stopped" and "diff is empty" in s["error"]
@@ -104,12 +136,6 @@ def test_prep_stops_before_any_agent(client, repo, monkeypatch):
     on_branch(repo, "locks", {"uv.lock": "x = 1\n"})
     s = wait(client, review(client, repo, request="branch: locks\n"))
     assert s["status"] == "stopped" and "Only lockfile files changed" in s["error"]
-    gh_recorder(monkeypatch, {"state": "OPEN", "isDraft": True, "baseRefName": "main", "headRefName": "x"})
-    s = wait(client, review(client, repo, request="#7\n"))
-    assert s["status"] == "stopped" and "PR #7 is a draft" in s["error"]
-    gh_recorder(monkeypatch, {"state": "MERGED", "isDraft": False, "baseRefName": "main"})
-    s = wait(client, review(client, repo, request="#7\n"))
-    assert s["status"] == "stopped" and "PR #7 is merged" in s["error"]
     assert seen == []
 
 
@@ -158,6 +184,8 @@ def test_problems_are_checked_again_and_the_verdict_follows_the_checks(client, r
         if req.item["job"] == "check":
             verdict = "rejected" if "blocking bug" in req.item["claim"] else "confirmed"
             return f"CHECK | {verdict} | read the lines\nTICKET-REVIEW: done"
+        if req.item["job"] == "settle":     # the item nobody judged: the second look cannot read what decides it
+            return "CHECK | unverified | the config it needs is not in the repo\nTICKET-REVIEW: done"
         ids = [i["id"] for i in req.item["items"]]
         lines = [f"{i} | met | src/scores/ranks.py:1 | fine" for i in ids if i not in ("T2", "D1")]
         lines += ["T2 | not-met | src/scores/ranks.py:2 | sorted() with reverse keeps ties but the test is missing | add a test",
@@ -169,12 +197,13 @@ def test_problems_are_checked_again_and_the_verdict_follows_the_checks(client, r
     s = wait(client, tid)
     checks = [r.item for r in seen if r.item and r.item.get("job") == "check"]
     assert sorted(c["kind"] for c in checks) == ["finding", "item"]
+    settles = [r.item for r in seen if r.item and r.item.get("job") == "settle"]
+    assert [c["target"] for c in settles] == ["D1"]                      # nobody judged D1: a second look reads the code
     detail = s["waiting"]["detail"]
     assert "NOT DONE" in detail and "MISSING" in detail and "T2 Ties keep the input order" in detail
     assert "MUST FIX" not in detail                                      # the check rejected the blocking finding
-    assert "D1" in detail and "no reviewer gave a verdict" in detail     # an item nobody judged: unclear, named
-    log = " ".join(graph_values(client, tid)["data"]["ticket_review"]["missing"])
-    assert log == "D1"
+    assert "D1" in detail and "unverified: the code that decides it could not be read" in detail   # said, not a shrug
+    assert graph_values(client, tid)["data"]["ticket_review"]["missing"] == []
     assert "D7" in detail and "src/scores/ranks.py:2" in detail and "(script)" in detail   # the TODO, proven by the script
     assert not any(c["claim"].startswith("D7") for c in checks)          # a script's not-met is not checked again
     labels = {o["label"]: o for o in s["waiting"]["questions"][0]["options"]}
@@ -198,6 +227,9 @@ def test_a_pr_is_fetched_into_keels_refs_and_posted_only_after_post(client, repo
     assert s["waiting"]["step"] == "share", s
     assert "PR #7 by ana" in s["waiting"]["detail"]
     assert git(repo, "rev-parse", "--verify", "-q", "refs/keel/review-pr/7").returncode == 0
+    # 0.18.57 the review's file:line findings are about the PR's head, which the project folder does not have checked
+    # out: the flow names that ref, and its links open the files there
+    assert s["source_ref"] == "refs/keel/review-pr/7"
     s = decide(client, tid, payload={"choice": "share"})                 # no ticks: summary, not met, blocking
     assert "post it as one comment on PR #7" in s["waiting"]["detail"]
     s = decide(client, tid, payload={"choice": "post"})

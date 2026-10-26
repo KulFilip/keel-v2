@@ -68,6 +68,9 @@ export function stubKeel() {
     ] as Record<string, unknown>[],
     // where POST /flows says the new flow is; null for both is a reply sent before the graph reached its first step
     startAt: { current: "preflight", phase: "preflight" } as { current: string | null; phase: string | null },
+    // 0.18.57 a start refused for untracked paths (until ignored) or for a task someone else works on (until force)
+    dirty: [] as string[],
+    owner: null as null | { kind: string; id: string; who: string; why: string },
     // keel 0.18.55 the demo project's `configured` (false: keel does not know it yet, no .keel/config.yml); unset: not sent
     configured: undefined as boolean | undefined,
   };
@@ -103,7 +106,13 @@ export function stubKeel() {
         created_at: AT, updated_at: AT, cost_usd: 0.42, latest: true }]];
       case "GET /api/projects/demo/budget/now": return [200, { today: { tokens: 15400, cost_usd: 0.42 }, month: { tokens: 99000, cost_usd: 3.1 }, flows: [], caps: [] }];
       case "POST /api/diagrams/ascii": return [200, { kind: body.kind, text: `DIAGRAM ${body.kind} ${body.data?.workflow?.id ?? ""} w=${body.width}\n`, lines: 1 }];
+      case "POST /api/projects/demo/doctor/workspace/exclude":
+        state.dirty = state.dirty.filter((d) => d !== body.path);
+        return [200, { results: [], remaining: [], clean: true }];
       case "POST /api/projects/demo/flows":
+        if (state.dirty.length && !body.allow_dirty) return [409, { error: `This project has uncommitted changes (1 file): ${state.dirty[0]}notes.md`,
+          hint: "Commit or stash them first.", dirty: [`${state.dirty[0]}notes.md`], ignorable: state.dirty }];
+        if (state.owner && !body.force) return [409, { error: "Someone already works on this", owners: [state.owner] }];
         state.thread = { ...state.thread, thread_id: "t2", title: body.title, status: "running", ...state.startAt, waiting: undefined };
         return [200, state.thread];
       case "POST /api/inbox/t1/act":

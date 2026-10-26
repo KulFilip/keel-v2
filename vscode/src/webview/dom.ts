@@ -58,6 +58,7 @@ export function wireFileRefs(root: HTMLElement): void {
       type: "open",
       path: a.dataset.open ?? "",
       line: Number.isFinite(line) ? line : undefined,
+      ...(a.dataset.ref ? { ref: a.dataset.ref } : {}),
     });
   });
 }

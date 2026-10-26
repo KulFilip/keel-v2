@@ -18,6 +18,7 @@ import type {
   PairResponse,
   PrList,
   Project,
+  RefFile,
   ReviewView,
   RunRow,
   StartFlowBody,
@@ -201,6 +202,11 @@ export class KeelApi {
       `/api/projects/${enc(pid)}/flows`,
       stripNulls(body),
     );
+  }
+
+  /** 0.18.57 a file as a branch, review ref or commit has it, without checking it out (the Code plugin's api) */
+  fileAt(pid: string, path: string, ref: string): Promise<RefFile> {
+    return this.call("GET", `/api/projects/${enc(pid)}/repo/file-at?path=${enc(path)}&ref=${enc(ref)}`);
   }
 
   // ---------------------------------------------------------------- the review plugin

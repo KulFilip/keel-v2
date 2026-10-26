@@ -145,3 +145,27 @@ export function renderMarkdown(text: string, linkFiles = true): string {
   flushList();
   return out.join("\n");
 }
+
+/** The ref a path cited in an answer belongs to (0.18.57): the ref the answer read it from, else the answer's own. */
+export function sourceRef(
+  source: { ref?: string | null; paths?: Record<string, string> | null } | null | undefined,
+  path: string,
+): string | null {
+  return source?.paths?.[path] ?? source?.paths?.[path.replace(/^\.\//, "")] ?? source?.ref ?? null;
+}
+
+const unesc = (s: string) =>
+  s.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+
+/** Rendered markdown whose path:line links also name the ref their file is at (data-ref), so a click opens that file
+ *  as the branch, review ref or commit the answer was made from has it. */
+export function withFileRefs(
+  html: string,
+  source: { ref?: string | null; paths?: Record<string, string> | null } | null | undefined,
+): string {
+  if (!source) return html;
+  return html.replace(/(<a href="#" class="file-ref" data-open=")([^"]*)(")/g, (m, a: string, p: string, b: string) => {
+    const ref = sourceRef(source, unesc(p));
+    return ref ? `${a}${p}${b} data-ref="${esc(ref)}"` : m;
+  });
+}

@@ -29,8 +29,7 @@ from pathlib import Path
 
 from keel_engine import rules
 from keel_engine.rules import checks
-from keel_engine.tools import git, testcmd
-from keel_engine.tools.agent_tools import command_env
+from keel_engine.tools import git, git_auth, testcmd
 
 DIFF_MAX = 40_000
 PROTECTED = ("main", "master")
@@ -218,10 +217,11 @@ def blame(root: str, path: str, start: int = 1, end: int | None = None) -> str:
 
 # ------------------------------------------------------------------ GitHub
 
-def _gh_env(token: str | None) -> dict:
+def _gh_env(token: str | None, root: str | None = None) -> dict:
+    """gh's environment: the login for its own host only (github.com, or the Enterprise origin of that host)."""
     if not token:
         raise GitError(400, "There is no GitHub token.", "Add one in Connections › GitHub (it needs repo access).")
-    return {**command_env(), "GH_TOKEN": token, "GH_PROMPT_DISABLED": "1"}
+    return git_auth.gh_env(root, token)
 
 
 # What gh prints when GitHub did not answer, and not because of what was asked: worth one more try.
@@ -239,34 +239,26 @@ def transient(code: int, out: str) -> bool:
 
 
 def _gh(root: str, token: str | None, cmd: str, timeout: int = 60, retry: bool = True) -> tuple[int, str]:
-    """gh with the token. A read that failed on the network (`transient`) runs once more after ~2 s; a call that
-    changes something (retry=False: pr create) never runs twice, it may have reached GitHub."""
-    env = _gh_env(token)
-    code, out = testcmd.run(root, cmd, timeout, env)
-    if retry and transient(code, out):
+    """gh with the login (for its own host only). A read that failed on the network (`transient`) runs once more after
+    ~2 s; a call that changes something (retry=False: pr create) never runs twice, it may have reached GitHub. (0,
+    stdout: the whole answer, never cut) or (code, what gh said: stderr first, upgrade notices out, secrets masked)."""
+    env = _gh_env(token, root)
+    code, out, err = testcmd.run_split(root, cmd, timeout, env)
+    if retry and transient(code, err + out):
         _sleep(RETRY_AFTER_S)
-        code, out = testcmd.run(root, cmd, timeout, env)
-    return code, out
+        code, out, err = testcmd.run_split(root, cmd, timeout, env)
+    return (code, out) if code == 0 else (code, git_auth.gh_message(code, out, err, token))
 
 
 def _json_arrays(text: str) -> list:
-    """The items of what `gh api --paginate` prints: one JSON array per page, written one after the other ([..][..]),
-    which is not one JSON document. A ValueError when the text is not arrays."""
-    dec = json.JSONDecoder()
-    items: list = []
-    i, n = 0, len(text)
-    while True:
-        while i < n and text[i].isspace():
-            i += 1
-        if i >= n:
-            return items
-        try:
-            value, i = dec.raw_decode(text, i)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"not JSON at character {i}: {exc.msg}") from exc
-        if not isinstance(value, list):
-            raise ValueError("expected a JSON array")
-        items.extend(value)
+    """The items of what `gh api --paginate` prints (one JSON array per page, one after the other, or --slurp's pages);
+    no output is no items. A ValueError when the text is not arrays."""
+    return git_auth.json_pages(text)
+
+
+def _unreadable(what: str, out: str, token) -> GitError:
+    said = git_auth.gh_message(0, out, "", token)
+    return GitError(502, f"gh's answer for {what} is not what keel expects: {said}", git_auth.gh_fix(said, token))
 
 
 def pr_status(root: str, token: str | None) -> dict | None:
@@ -282,11 +274,13 @@ def pr_status(root: str, token: str | None) -> dict | None:
         if transient(code, out):
             raise GitError(504, f"GitHub did not answer in time: {_tail(out, 300)}",
                            "The branch and its commits are fine; keel tried twice. Try again in a moment.", transient=True)
-        raise GitError(502, f"gh could not read the pull request: {_tail(out, 300)}")
+        raise GitError(502, f"gh could not read the pull request: {out}", git_auth.gh_fix(out, token))
     try:
-        d = json.loads(out[out.index("{"):])
-    except (ValueError, json.JSONDecodeError):
-        raise GitError(502, "gh gave an answer keel cannot read.")
+        d = json.loads(out)
+        if not isinstance(d, dict):
+            raise ValueError("not an object")
+    except ValueError:
+        raise _unreadable("the pull request", out, token) from None
     checks_ = []
     for c in d.get("statusCheckRollup") or []:
         state = (c.get("conclusion") or c.get("state") or c.get("status") or "").lower()
@@ -298,12 +292,14 @@ def pr_status(root: str, token: str | None) -> dict | None:
     if transient(code2, out2):
         raise GitError(504, f"GitHub did not answer in time: {_tail(out2, 300)}",
                        "The branch and its commits are fine; keel tried twice. Try again in a moment.", transient=True)
-    if code2 == 0:
-        try:
-            inline = _json_arrays(out2)
-        except ValueError as exc:
-            raise GitError(502, "gh gave the review comments in a form keel cannot read.", str(exc)[:200]) from exc
-        for c in inline:
+    if code2 != 0:
+        raise GitError(502, f"gh could not read the review comments: {out2}", git_auth.gh_fix(out2, token))
+    try:
+        inline = _json_arrays(out2)
+    except ValueError:
+        raise _unreadable("the review comments", out2, token) from None
+    for c in inline:
+        if isinstance(c, dict):
             comments.append({"author": (c.get("user") or {}).get("login", ""), "body": (c.get("body") or "")[:2000],
                              "path": c.get("path"), "line": c.get("line") or c.get("original_line")})
     done = [c for c in checks_ if c["state"] not in ("pending", "queued", "in_progress", "expected", "waiting", "")]
@@ -423,26 +419,13 @@ def _remote_url(root: str) -> str:
     return git.git(root, "remote", "get-url", "origin").stdout.strip()
 
 
-def _https(url: str) -> str | None:
-    """A GitHub remote as https (an ssh remote has no key in keel's container)."""
-    m = re.match(r"^(?:git@github\.com:|ssh://git@github\.com/|https://github\.com/)([^/]+/[^/]+?)(?:\.git)?/?$", url)
-    return f"https://github.com/{m.group(1)}.git" if m else None
-
-
-def _auth_args(token: str | None) -> list[str]:
-    if not token:
-        return []
-    helper = "!f() { echo username=x-access-token; echo \"password=$KEEL_GH_TOKEN\"; }; f"
-    return ["-c", "credential.helper=", "-c", f"credential.helper={helper}"]
-
-
 def _fetch(root: str, ref: str, token: str | None):
-    url = _remote_url(root)
-    https = _https(url) if token else None
-    env = {**command_env(), "KEEL_GH_TOKEN": token or "", "GIT_TERMINAL_PROMPT": "0"}
-    if https:
-        return git.git(root, *_auth_args(token), "fetch", "-q", https, f"+refs/heads/{ref}:refs/remotes/origin/{ref}", env=env)
-    return git.git(root, "fetch", "-q", "origin", ref, env=env)
+    """origin's `ref` into origin/<ref>; with keel's GitHub login only when origin is on its host (git_auth)."""
+    with git_auth.remote(root, token) as r:
+        out = git.git(root, *r.args, "fetch", "-q", r.target, f"+refs/heads/{ref}:refs/remotes/origin/{ref}", env=r.env)
+    out.stderr = git_auth.mask(out.stderr, token)
+    out.stdout = git_auth.mask(out.stdout, token)
+    return out
 
 
 def push(root: str, token: str | None = None) -> dict:
@@ -457,12 +440,11 @@ def push(root: str, token: str | None = None) -> dict:
     url = _remote_url(root)
     if not url:
         raise GitError(400, "This repository has no remote called origin.")
-    env = {**command_env(), "KEEL_GH_TOKEN": token or "", "GIT_TERMINAL_PROMPT": "0"}
-    https = _https(url) if token else None
-    target = https or "origin"
-    r = git.git(root, *_auth_args(token if https else None), "push", "--porcelain", target, f"HEAD:refs/heads/{br}", env=env)
+    with git_auth.remote(root, token) as rem:
+        r = git.git(root, *rem.args, "push", "--porcelain", rem.target, f"HEAD:refs/heads/{br}", env=rem.env)
+        https = rem.login is not None
     if r.returncode != 0:
-        out = _tail(r.stderr or r.stdout, 500)
+        out = git_auth.mask(_tail(r.stderr or r.stdout, 500), token)
         if "non-fast-forward" in out or "rejected" in out:
             raise GitError(409, f"The remote branch {br} has commits this one lacks; keel does not force.",
                            "Bring them in first (Update from main does not; pull the branch), then push again.")
@@ -500,13 +482,13 @@ def pr(root: str, token: str | None, title: str, body: str, draft: bool = False)
             code, out = _gh(root, token, f"gh pr edit {current['number']} --title {shlex.quote(title)} --body-file {shlex.quote(path)}",
                             retry=False)
             if code != 0:
-                raise GitError(502, f"gh pr edit failed: {_tail(out, 400)}")
+                raise GitError(502, f"gh pr edit failed: {out}", git_auth.gh_fix(out, token))
             return {"number": current["number"], "url": current["url"], "updated": True}
         cmd = (f"gh pr create --title {shlex.quote(title)} --body-file {shlex.quote(path)} --head {shlex.quote(br)}"
                + (f" --base {shlex.quote(b)}" if b else "") + (" --draft" if draft else ""))
         code, out = _gh(root, token, cmd, 120, retry=False)
         if code != 0:
-            raise GitError(502, f"gh pr create failed: {_tail(out, 400)}")
+            raise GitError(502, f"gh pr create failed: {out}", git_auth.gh_fix(out, token))
         url = next((line for line in out.splitlines() if line.startswith("http")), "").strip()
         return {"url": url, "updated": False}
     finally:

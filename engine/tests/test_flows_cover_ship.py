@@ -714,3 +714,33 @@ def test_the_pr_body_and_the_final_review_carry_security_and_dismissed_findings(
     text = ship.final_report(str(tmp_path), "pf3", state, "Rank")
     assert "| security | findings | security audit: 1 blocking finding(s) |" in text
     assert "## Security: not run" in verdict_actions.pr_body(str(tmp_path), "pf3", {"data": {}}, "Rank", None)
+
+
+def test_skip_answers_take_a_shared_reason_and_a_refused_one_never_runs_the_steps(client, repo, monkeypatch):
+    """0.18.57 real use: a skip answered through MCP without per-step reasons was refused, then keel ran every step.
+    The simple forms work (skip: [names] with one reason, the answer's why), and after a refusal an answer that says
+    nothing about skipping asks again instead of running what the person wanted skipped."""
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    answers(monkeypatch, {})
+    calls = script(monkeypatch, ship_plan())
+    tid = start(client, repo, workflow="ship")
+    assert wait(client, tid)["waiting"]["step"] == "plan"
+    s = decide(client, tid, "approve", payload={"skip": ["deps"]})
+    assert "skipping deps needs a reason" in s["waiting"]["title"] and "nothing was skipped" in s["waiting"]["title"]
+    s = decide(client, tid, "approve")
+    assert s["waiting"]["step"] == "plan" and "you asked to skip deps" in s["waiting"]["title"], s["waiting"]
+    assert "verify_fast" not in calls
+    s = decide(client, tid, "approve", why="no manifest changed", payload={"answers": {"skip": ["deps"]}})
+    assert "verify_deps" not in calls
+    assert finished(client, tid, "deps")[-1]["skipped"] is True
+
+
+def test_skip_payload_simple_forms():
+    names = ["deps", "lint"]
+    p = ship.skip_payload({"skip": ["deps", "lint"], "reason": "tiny"}, names)
+    skips, _l, problem = ship.parse_skips(p, [{"name": "deps", "band": "deferred"}, {"name": "lint", "band": "optional"}])
+    assert problem is None and {s["step"]: s["reason"] for s in skips} == {"deps": "tiny", "lint": "tiny"}
+    _s, _l, problem = ship.parse_skips(ship.skip_payload({"skip": "deps"}, names), [{"name": "deps", "band": "deferred"}])
+    assert problem and problem.startswith("skipping deps needs a reason")
+    assert ship.names_skip({}) is None and ship.names_skip({"skip": []}) == set()

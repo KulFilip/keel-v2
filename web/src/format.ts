@@ -124,6 +124,14 @@ export function plainText(md: string | null | undefined, max = 220): string {
   return t.length > max ? t.slice(0, max - 1).trimEnd() + "…" : t;
 }
 
+/** 0.18.57 The Code page's link to a file at a line, as one branch, review ref or commit has it: an answer, a finding or
+ *  a citation made while looking at a branch the project folder may not have checked out opens THAT file
+ *  (`#/repo/<path>:<line>?ref=<ref>`); without a ref, the work tree's. */
+export function codeHref(path: string, line?: number | null, ref?: string | null): string {
+  const p = path.replace(/^\.\//, "").split("/").map(encodeURIComponent).join("/");
+  return `#/repo/${p}${line ? `:${line}` : ""}${ref ? `?ref=${encodeURIComponent(ref)}` : ""}`;
+}
+
 /** `src/app/checkout.js:12` or `src/app/checkout.js:12-14` → {path, line}; anything else → null (KeelBot's answers). */
 export function fileLink(text: string): { path: string; line: number } | null {
   const m = /^\s*([\w@.~-][\w@./~ -]*\.[\w]+):(\d+)(?:[-–](\d+))?\s*$/.exec(text);

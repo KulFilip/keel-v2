@@ -9,7 +9,8 @@
 // "Open items:" is a note box, and a few fixed "I did not check this" sentences ("Not verified: …", "I did not run …",
 // "I changed no files.") are dimmer. Nothing else is guessed: an unknown tag stays text.
 
-import { Fragment, type ClipboardEvent, type ReactNode } from "react";
+import { createContext, Fragment, useContext, type ClipboardEvent, type ReactNode } from "react";
+import { codeHref, fileLink } from "../format";
 import { CodeBlock, DiffView, FOLD, type FoldLabel } from "./Code";
 
 const CITE = /^[\w@./-]+\.[\w]+:\d+(-\d+)?$/;
@@ -28,6 +29,21 @@ const CALLOUT = /^(?:\*\*)?Open items:(?:\*\*)?\s*(.*)$/i;
 /** The sentences that say what KeelBot did not check or change: shown dimmer, from where they start to the line's end. */
 const DIM = /(?:^|(?<=[.!?)]\s+))(?:Not verified:|Not checked(?: in the code)?:|Unverified:|I did not (?:run|check|verify|test|read|open|change)\b|I didn't (?:run|check|verify|test)\b|I changed no files\b|I made no changes\b|No files (?:were )?changed\b)/i;
 
+/** 0.18.57 Inside this, a `file:line` chip is a link to the Code page, at `ref` when the text was made from a branch,
+ *  review ref or commit (a flow's worktree branch, a reviewed PR): the link opens that file, not the work tree's.
+ *  Without it a chip stays a plain chip (KeelBot's panel opens its chips itself). */
+export const CiteLinks = createContext<{ ref?: string | null } | null>(null);
+
+function Cite({ text }: { text: string }) {
+  const links = useContext(CiteLinks);
+  const link = links ? fileLink(text) : null;
+  if (!link) return <span className="cite">{text}</span>;
+  return (
+    <a className="cite" href={codeHref(link.path, link.line, links?.ref)}
+      title={`Open ${text}${links?.ref ? ` as ${links.ref} has it` : ""} in the Code page`}>{text}</a>
+  );
+}
+
 function inline(text: string, key = 0): ReactNode[] {
   const out: ReactNode[] = [];
   // `_x_` / `__x__` are emphasis only at word boundaries (as on GitHub): snake_case_words stay as they are
@@ -40,7 +56,7 @@ function inline(text: string, key = 0): ReactNode[] {
     const t = m[0];
     if (m[1]) {
       const c = t.slice(1, -1);
-      out.push(CITE.test(c) ? <span key={k++} className="cite">{c}</span> : <code key={k++}>{c}</code>);
+      out.push(CITE.test(c) ? <Cite key={k++} text={c} /> : <code key={k++}>{c}</code>);
     } else if (m[2] || m[3]) out.push(<b key={k++}>{inline(t.slice(2, -2), k)}</b>);
     else if (m[4] || m[5]) out.push(<em key={k++}>{inline(t.slice(1, -1), k)}</em>);
     else if (m[6]) {

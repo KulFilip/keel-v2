@@ -746,6 +746,49 @@ first, then runs `keel-plugin lint` and the plugin's tests (`scripts/plugin-chec
 plugin can also add commands, panels and full-screen modes to keel TUI (`contributes.tui`; data only, no plugin code
 runs in the terminal app). How it all works: [docs/plugins/README.md](plugins/README.md).
 
+## Real projects: containers, commit style, one owner per task
+
+**A toolchain that lives only in a container.** When `.keel/config.yml` runs the tests through a service
+(`api_test_module: docker compose exec -T app vendor/bin/phpunit`), keel:
+
+- sets up a flow's worktree with the project's own dependency command (`commands.deps_api` / `deps_web`), never a
+  stack's bare `composer install` on keel's side; with no such command and the tests in a container it runs nothing;
+- checks the toolchain before a flow's first step: `commands.preflight` when it is set, else the test runner's
+  `--version` through the same service. A failure stops at a gate that says what failed and the command, with
+  *I started the container, check again*, *Run in the project folder* (a worktree flow), *Skip the preflight* and *Stop*;
+- reads the service's compose volumes: a container that mounts only the project folder runs its commands on the
+  folder's code, so flows run in the project folder (Start a flow says why: "tests run in the container `app`, which
+  sees only the project folder") and a second flow waits until the first one ends.
+
+**Commit style.** `git.commit_template` in `.keel/config.yml` sets keel's subjects, with `{ticket}`, `{type}`,
+`{scope}` and `{subject}` (for example `{ticket}: {type}: {subject}`). Without one keel follows the ticket style most
+of the branch's recent commits share (its own commits do not count), else writes its own `feat(AC-2): ...`. `{type}`
+comes from what changed (only tests: test; a refactor criterion: refactor; the fix flow: fix; only docs: docs; else
+feat), `{ticket}` from the flow's ticket or the branch name (`feature/SHOPS-1234-euro-prices`). With another style keel
+adds `Keel-Ref: feat(AC-2)` so the trace and the audit still find each criterion's commits. A cut subject's body holds
+only the words that did not fit.
+
+**The ship audit and keel's own commits.** "Mark as already met" commits the criterion's test as `test(AC-n)` with
+`Keel-Path: already-met`; test files keel's unlock opened in green are named in `Keel-Unlocked:`. The audit accepts
+both. It compares with the base branch's remote copy (`origin/main`, fetched first) when there is one, so commits
+merged upstream are never read as the branch's own, and the ship menu says when the local base is behind or
+diverged. At the audit gate *Accept these and go on* records your reason for exactly the problems listed (the audit
+does not ask about them again); a plain retry of a history check says it finds the same thing until the branch changes.
+
+**Uncommitted files at a start.** Editor and tool folders (`.serena/`, `.idea/`, `.vscode/`, `.fleet/`,
+`.DS_Store`, `.claude/settings.local.json`) never block a start. For any other untracked path the refusal offers
+**Ignore this path** (it adds the path to `.git/info/exclude`, on this computer only); keel TUI's `/flow` and MCP
+`keel_start_flow(ignore=[...])` offer the same.
+
+**One owner per task.** Start a flow, MCP `keel_start_flow`, Tasks › Start and KeelBot side sessions refuse while
+another flow or side agent of the project works on the same ticket, branch or files, and say who ("flow SHOPS-1234:
+Euro prices at red", "side agent h_..."). *Start anyway* (`force`) starts it all the same.
+
+**Stale configuration.** `keel2 doctor <project>`, the project's doctor (`GET /api/projects/{pid}/doctor/config`) and
+knowledge-refresh check that the configured commands can still run: a compose service a command execs into is in the
+compose files, a composer / npm script is in composer.json / package.json, a make target is in the Makefile. Each stale
+one is listed with `.keel/config.yml` and its line.
+
 ## Stacks
 
 **Build › Stacks** shows how each project builds and tests. A stack is one YAML file: its lane (api or web), the

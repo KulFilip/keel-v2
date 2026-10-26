@@ -72,6 +72,11 @@ export type AutomationView = {
 export type ItemActBody = { note?: string; workflow_id?: string; answers?: Record<string, string | string[]>; allow_dirty?: boolean };
 export type JiraUser = { name: string; account_id?: string | null; username?: string | null; email?: string | null };
 
+/** 0.18.57 the Jira plugin's connection, as the Automations drawer's "Jira statuses" tab reads it (a 404 when the plugin
+ *  is off): whether it is connected, and the keel status → Jira status map ("-" = do not move the ticket). */
+export type JiraLink = { connected: boolean; settings: { kind: "cloud" | "server"; base_url: string; status_map: Partial<Record<TaskStatus, string>> }; me: { name: string } | null };
+export type JiraFound = { statuses: { name: string; category: string | null }[]; transitions: { name: string; to: string }[]; suggested: Partial<Record<TaskStatus, string>> };
+
 export type NewTask = { title: string; description?: string; type?: TaskType; external_key?: string; external_url?: string; assignee?: string; priority?: string; reviewers?: string[] };
 
 const e = encodeURIComponent;
@@ -83,7 +88,7 @@ export const tasksApi = {
   get: (id: string) => get<Task>(`/tasks/${e(id)}`),
   update: (id: string, t: Partial<NewTask>) => put<Task>(`/tasks/${e(id)}`, t),
   remove: (id: string) => del<{ ok: boolean }>(`/tasks/${e(id)}`),
-  start: (id: string, b: { workflow_id?: string; run_mode?: RunMode; allow_dirty?: boolean; allow_fake?: boolean }) => post<Task>(`/tasks/${e(id)}/start`, b),
+  start: (id: string, b: { workflow_id?: string; run_mode?: RunMode; allow_dirty?: boolean; allow_fake?: boolean; force?: boolean }) => post<Task>(`/tasks/${e(id)}/start`, b),
   confirm: (id: string, stage: "pp" | "prod", note?: string) => post<Task>(`/tasks/${e(id)}/confirm`, { stage, ...(note ? { note } : {}) }),
   move: (id: string, to: TaskStatus, note?: string) => post<Task>(`/tasks/${e(id)}/status`, { to, ...(note ? { note } : {}) }),
   setPr: (id: string, url: string) => post<Task>(`/tasks/${e(id)}/pr`, { url }),
@@ -98,6 +103,11 @@ export const tasksApi = {
   saveAutomations: (pid: string, s: Partial<AutomationSettings>) => put<AutomationView>(`/projects/${e(pid)}/tasks/automations`, s),
   /** the Jira plugin's user search (a 404 when it is off) */
   jiraUsers: (pid: string, q: string) => get<JiraUser[]>(`/projects/${e(pid)}/jira/users?q=${e(q)}`),
+
+  /** the Jira plugin's connection and its status map (Automations › Jira statuses; the setup stays in Connections) */
+  jira: (pid: string) => get<JiraLink>(`/projects/${e(pid)}/jira`),
+  jiraStatuses: (pid: string) => get<JiraFound>(`/projects/${e(pid)}/jira/discover`),
+  saveStatusMap: (pid: string, status_map: Partial<Record<TaskStatus, string>>) => put<JiraLink>(`/projects/${e(pid)}/jira`, { status_map }),
 
   // keel's own reads the task drawer needs: the workflows a task can start, and the project's run mode
   workflows: (pid: string) => get<Workflow[]>(`/projects/${e(pid)}/workflows`),

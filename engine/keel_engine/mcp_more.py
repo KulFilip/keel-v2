@@ -51,6 +51,7 @@ def flows(api: KeelApi, project: str | None = None, limit: int = 10) -> str:
         + (f" at {r['current']}" if r.get("current") else "") + f" · criteria {r.get('acs_done', 0)}/{r.get('acs_total', 0)}"
         + f" · {_n(r.get('tokens'))} tokens · ${float(r.get('cost_usd') or 0):.2f} · {r.get('where') or 'folder'}"
         + (f" · branch {r['branch']}" if r.get("branch") else "") + (f" · error: {r['error']}" if r.get("error") else "")
+        + (f" · replaced by {r['replaced_by']} (same {r.get('source') or 'change'}, started again)" if r.get("replaced_by") else "")
         for r in rows) + can
 
 
@@ -257,6 +258,10 @@ def answer(api: KeelApi, decision: str, project: str | None = None, thread_id: s
     if question_id or w.get("id"):
         payload["question_id"] = question_id or w.get("id")
     st = api.post(f"/inbox/{_q(thread_id)}/act", {"decision": decision, "why": why, "payload": payload or None}) or {}
+    again = st.get("waiting") or {}
+    if st.get("status") == "waiting" and again.get("step") == w.get("step") and again.get("title") != w.get("title"):
+        # 0.18.57 the gate refused the whole answer and asks again (a skip without its reason): say so, nothing ran
+        return f"refused, nothing was done: {again.get('title')}. Answer again (keel_answer)."
     return f"answered thread {thread_id} ({decision}). The flow is {st.get('status')} at {st.get('current') or '-'}."
 
 

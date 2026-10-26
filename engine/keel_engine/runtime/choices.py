@@ -50,6 +50,12 @@ CATALOGUE: dict[tuple[str, str], tuple[str, str, str]] = {
     ("setup", "retry"): ("I fixed it, try again", NONE, "run the stack setup again (the packages, then each_worktree)"),
     ("setup", "skip"): ("Skip the setup", OPTIONAL, "go on without it; the flow's tests may fail until it is done"),
     ("setup", "stop"): ("Stop the flow", OPTIONAL, "end the flow here; nothing was changed"),
+    # 0.18.57 the toolchain does not answer before the first step (Compiler.preflight_gate, runtime/container.py)
+    ("preflight", "retry"): ("I started the container, check again", NONE, "run the preflight again"),
+    ("preflight", "folder"): ("Run in the project folder", NONE,
+                              "stop this worktree flow; start it again in the project folder, where the container sees it"),
+    ("preflight", "skip"): ("Skip the preflight", OPTIONAL, "go on without the check; the tests fail until it answers"),
+    ("preflight", "stop"): ("Stop the flow", OPTIONAL, "end the flow here; nothing was changed"),
     # a for_each item's gate (A5): skipping an item is recorded with its reason
     ("item", "approve"): ("Approve", NONE, "approve this item and go on"),
     ("item", "skip"): ("Skip this item", REQUIRED, "skip this item; the reason is recorded"),

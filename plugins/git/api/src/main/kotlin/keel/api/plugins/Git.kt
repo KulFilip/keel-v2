@@ -35,7 +35,7 @@ class GitPluginService(
         val s = settings.effective(pid)
         val body = mapOf(
             "root" to projects.root(pid).toString(),
-            "keys" to (plugins.githubToken()?.let { mapOf("github" to it) } ?: emptyMap()),
+            "keys" to plugins.githubKeys(),
             "settings" to mapOf("commit_author" to s.commitAuthor.trim().ifBlank { null }, "commit_coauthor" to s.commitCoauthor)
                 .filterValues { it != null },
         ) + extra

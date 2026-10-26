@@ -11,7 +11,7 @@ from ..runtime.findings import REVIEWERS
 from .model import Workflow, WorkflowError, load_yaml
 from .templates import get_template
 
-CODE_ACTIONS = {"verify_red", "verify_green", "verify_after_green", "verify_release", "verify_coverage", "commit", "push_check", "write_config",
+CODE_ACTIONS = {"verify_red", "verify_green", "verify_after_green", "verify_release", "verify_coverage", "commit", "push_check", "write_config", "config_check",
                 "ladder", "knowledge_check", "memory_check",
                 # verdict actions (runtime/verdict_actions.py), the PR body, and the hand-off to another workflow
                 "verify_fast", "verify_module", "verify_deps", "audit", "trace", "trace_strict", "arch", "pr", "open_pr",

@@ -27,7 +27,8 @@ import java.nio.file.Paths
 /** A new Helper session: mode "ask" (read only), "edit" (the project folder, no flow needed; 0.18.7), "fix" (while the
  *  project's flow waits at a gate) or "side" (its own
  *  worktree and branch); the model defaults to the helper agent's. */
-data class HelperCreate(val mode: String = "ask", val model: Model? = null, val title: String = "")
+/** 0.18.57 force: a side session starts although a flow or another side agent works on the same ticket or files. */
+data class HelperCreate(val mode: String = "ask", val model: Model? = null, val title: String = "", val force: Boolean = false)
 data class HelperUndo(val path: String? = null)
 /** Done: the commit's subject as the person wrote it (blank: the chat's title). */
 /** keel 0.18.3 `paths`: keep only these of KeelBot's files (keel TUI's /keep <path>); none = every file. */
@@ -97,6 +98,8 @@ class HelperService(
     fun create(pid: String, body: HelperCreate): JsonNode {
         val project = projects.require(pid)
         if (body.mode !in MODES) throw BadRequest("Unknown KeelBot mode ${body.mode}", "Use ask, edit, fix or side.")
+        // 0.18.57 one owner per task: a side agent on what a flow or another side agent already works on is refused
+        if (body.mode == "side" && !body.force) flows.refuseOwners(pid, java.nio.file.Paths.get(project.root), body.title, null, null)
         val thread = if (body.mode == "fix") waitingThread(pid) else null
         val threadId = thread?.path("thread_id")?.asText()
         return engine.post("/helper/sessions", mapOf(

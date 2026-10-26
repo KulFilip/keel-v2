@@ -44,10 +44,11 @@ def gh(monkeypatch):
         state["calls"].append(cmd)
         assert env and env.get("GH_TOKEN") == "tok"
         if cmd.startswith("gh api"):
-            return 0, "[]"
-        return state["answers"].pop(0)
+            return 0, "[]", ""
+        code, out = state["answers"].pop(0)
+        return (code, out, "") if code == 0 else (code, "", out)      # gh writes its errors to stderr
 
-    monkeypatch.setattr(core.testcmd, "run", run)
+    monkeypatch.setattr(core.testcmd, "run_split", run)
     monkeypatch.setattr(core, "_sleep", lambda s: state["slept"].append(s))
     return state
 

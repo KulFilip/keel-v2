@@ -178,6 +178,15 @@ DOCS: dict[str, dict] = {
             "Stale: the sections and the changed files they cite, for the gate (update is recommended; it costs tokens).",
         ],
     },
+    "config_check": {
+        "summary": "knowledge-refresh: are the commands in .keel/config.yml still runnable as written (0.18.57)?",
+        "steps": [
+            "Reads files only, runs nothing: a docker compose service a command execs into is in the compose files, a "
+            "composer / npm / yarn script is in composer.json / package.json, a make target is in the Makefile, a "
+            "script path exists.",
+            "Soft: a stale command is listed with .keel/config.yml and its line (data.config_check_output); the flow goes on.",
+        ],
+    },
     "knowledge_scan": {
         "summary": "knowledge-refresh: finds the stale sections (a file they cite changed since the last knowledge check) "
                    "and the chosen ones not written yet; a refresh without a list updates only these.",
@@ -583,8 +592,12 @@ DOCS: dict[str, dict] = {
         "steps": [
             "The PR (a number, #12, PR 12, its URL) or `branch: <name>` from the request's lines or data pr / branch / "
             "base; the rest of the request (or data.ticket) is the ticket.",
-            "A PR: gh pr view for its state, then git fetch of its head and base into refs/keel/review-pr/<n>. A closed "
-            "or draft PR stops the flow (data force: true reviews it anyway).",
+            "Before the run exists (the start): no PR or branch named, a PR keel cannot fetch, a closed or draft PR "
+            "(data force: true reviews it anyway) or a missing branch refuses the start, so no run is left behind.",
+            "A PR: gh pr view for its state, then git fetch of its head and base into refs/keel/review-pr/<n>, with "
+            "keel's GitHub login (Connections › GitHub) for its own host only (github.com or the Enterprise host). "
+            "When keel cannot fetch, refs fetched on the host (refs/keel/pr-<n>, refs/pull/<n>/head, origin/<head>) "
+            "are reviewed instead, and the note says so.",
             "Stops on an empty diff, only lockfiles, generated or built files, or only docs.",
             "The checklist: the ticket's Acceptance criteria / Definition of done bullets (T1..) and .keel/dod.md "
             "(D1..; keel's starter list without one). Script checks on the added lines decide secrets, disabled tests, "

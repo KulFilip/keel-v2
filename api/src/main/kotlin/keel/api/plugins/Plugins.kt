@@ -117,7 +117,7 @@ class PluginService(
      */
     fun keysFor(pid: String): Map<String, String> {
         val out = linkedMapOf<String, String>()
-        githubToken()?.let { out["github"] = it }
+        out.putAll(githubKeys())
         return out
     }
 
@@ -161,6 +161,13 @@ class PluginService(
 
     /** The host [githubToken] belongs to: github.com, or the Enterprise host set at sign-in. The token goes to it only. */
     fun githubHost(): String = secrets.githubHost()
+
+    /**
+     * The GitHub login as the engine reads it: keys["github"] (the token) and keys["github_host"] (its host). The
+     * engine's git and gh calls give the token to that host only (engine tools/git_auth.py). Empty without a token.
+     */
+    fun githubKeys(): Map<String, String> =
+        githubToken()?.let { mapOf("github" to it, "github_host" to githubHost()) } ?: emptyMap()
 
     companion object {
         const val GITHUB = "GITHUB_REPO_TOKEN"

@@ -206,6 +206,8 @@ data class StartTask(
     val title: String? = null,
     val request: String? = null,
     val capTokens: Int? = null,
+    /** 0.18.57 start although another flow or side agent works on the same ticket, branch or files. */
+    val force: Boolean = false,
 )
 
 data class ConfirmTask(val stage: String = "", val note: String? = null)

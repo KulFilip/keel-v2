@@ -6,7 +6,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { api, errorParts, type GraphHit, type HelperSession } from "../../api";
+import { api, errorParts, sourceRef, type AnswerSource, type GraphHit, type HelperSession } from "../../api";
 import { navGroups, useFeatures, useView } from "../../addons";
 import { fileLink } from "../../format";
 import { isMac, keyLabel, LAUNCHER, matches } from "../../keys";
@@ -98,6 +98,8 @@ type Ask = {
   call?: string;
   n?: number;
   answer?: string;
+  /** 0.18.57 what the answer was made from: its file links open the file as that ref has it */
+  source?: AnswerSource;
   error?: string;
   session?: HelperSession;
 };
@@ -302,6 +304,7 @@ function Dialog({
             ...a,
             status: reply.role === "note" ? "failed" : "done",
             answer: reply.role === "note" ? undefined : reply.text,
+            source: reply.data?.source,
             error: reply.role === "note" ? reply.text : undefined,
             session: s,
           }));
@@ -631,10 +634,10 @@ function Dialog({
             pid={pid}
             steps={steps.length}
             lastStep={steps[steps.length - 1]?.text}
-            onOpen={(path, line) => {
+            onOpen={(path, line, ref) => {
               onClose();
               // the part that shows files (Code) knows their link
-              const hash = fileHash(path, line);
+              const hash = fileHash(path, line, ref);
               if (hash) location.hash = hash;
             }}
             onAgain={() => {
@@ -1029,7 +1032,7 @@ function AskView({
   pid: string | null;
   steps: number;
   lastStep?: string;
-  onOpen: (path: string, line?: number) => void;
+  onOpen: (path: string, line?: number, ref?: string | null) => void;
   onAgain: () => void;
   onContinue: () => void;
   onCopy: () => void;
@@ -1037,7 +1040,7 @@ function AskView({
   const click = (target: EventTarget | null) => {
     const el = (target as HTMLElement | null)?.closest?.(".cite");
     const link = el ? fileLink(el.textContent ?? "") : null;
-    if (link) onOpen(link.path, link.line);
+    if (link) onOpen(link.path, link.line, sourceRef(ask.source, link.path));
     return !!link;
   };
   if (!pid)

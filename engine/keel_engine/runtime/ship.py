@@ -314,11 +314,25 @@ def skip_payload(payload: dict, names: list[str] | set[str] | None = None) -> di
     steps that have none, instead of a step keel does not know."""
     answers = payload.get("answers") if isinstance(payload.get("answers"), dict) else {}
     ticked = answers.get("skip")
+    shared = str(payload.get("reason") or payload.get("why") or "").strip()
+    raw = payload.get("skip")
+    if isinstance(raw, (str, list)) and raw not in ("", []):
+        # 0.18.57 the simple forms: skip: "doc_updates" or skip: ["doc_updates", "lint"] with one shared reason
+        # (payload.reason, or the answer's why); before, a list of names was dropped and every step ran
+        names_in = [raw] if isinstance(raw, str) else raw
+        listed = {str(x).strip(): shared or None for x in names_in if isinstance(x, str) and str(x).strip()}
+        listed.update({str(x.get("step") or x.get("name") or ""): x.get("reason") or shared or None
+                       for x in names_in if isinstance(x, dict)})
+        payload = {**payload, "skip": listed}
+    elif isinstance(raw, dict) and shared:
+        payload = {**payload, "skip": {k: v if str(v or "").strip() else shared for k, v in raw.items()}}
     if ticked in (None, "", []):
         return payload
     ticked = [ticked] if isinstance(ticked, str) else [str(x) for x in ticked if str(x).strip()]
     reasons = payload.get("reasons") if isinstance(payload.get("reasons"), dict) else {}
     reasons = {str(k): v for k, v in reasons.items() if str(v or "").strip()}
+    if shared:
+        reasons = {**{str(t).partition(":")[0].strip(): shared for t in ticked}, **reasons}
     have = payload.get("skip")
     have = {str(x.get("step") or x.get("name") or ""): x.get("reason") for x in have if isinstance(x, dict)} \
         if isinstance(have, list) else dict(have) if isinstance(have, dict) else {}
@@ -344,11 +358,43 @@ def skip_payload(payload: dict, names: list[str] | set[str] | None = None) -> di
     return {**payload, "skip": {**skip, **have}}
 
 
+def base_warning(root: str) -> str | None:
+    """The base drift line (verdict_actions.base_drift) after a fetch, or None; never raises."""
+    try:
+        cfg = rules.load_config(root)
+        verdict_actions.fetch_base(root, cfg)
+        return verdict_actions.base_drift(root, cfg)
+    except Exception:            # noqa: BLE001 - a warning never stops the ship
+        return None
+
+
+def names_skip(payload: dict) -> set[str] | None:
+    """The step names an answer asks to skip (an empty set: it says skip nothing), or None when it says nothing about
+    skipping at all (no answers.skip, no skip)."""
+    answers = payload.get("answers") if isinstance(payload.get("answers"), dict) else {}
+    if "skip" not in answers and "skip" not in payload:
+        return None
+    out: set[str] = set()
+    for raw in (answers.get("skip"), payload.get("skip")):
+        if isinstance(raw, str) and raw.strip():
+            out.add(raw.partition(":")[0].strip())
+        elif isinstance(raw, dict):
+            out.update(str(k) for k in raw)
+        elif isinstance(raw, list):
+            out.update(str(x.get("step") or x.get("name") or "") if isinstance(x, dict) else str(x).partition(":")[0].strip()
+                       for x in raw)
+    return {x for x in out if x}
+
+
 def parse_skips(payload: dict, units: list[dict]) -> tuple[list[dict], list[str] | None, str | None]:
     """(skips [{step, band, reason}], lenses or None, problem or None) from the opening gate's answer."""
     raw = payload.get("skip") or {}
+    if isinstance(raw, str):
+        raw = [raw]
     if isinstance(raw, list):
-        raw = {str(x.get("step") or x.get("name") or ""): x.get("reason") for x in raw if isinstance(x, dict)}
+        shared = str(payload.get("reason") or payload.get("why") or "").strip() or None
+        raw = {str(x.get("step") or x.get("name") or "") if isinstance(x, dict) else str(x).strip():
+               (x.get("reason") or shared) if isinstance(x, dict) else shared for x in raw}
     if not isinstance(raw, dict):
         return [], None, "skip must map a step name to a reason"
     by = {u["name"]: u for u in units}
@@ -357,7 +403,10 @@ def parse_skips(payload: dict, units: list[dict]) -> tuple[list[dict], list[str]
         if name not in by:
             return [], None, f"{name} cannot be skipped here (skippable: {', '.join(by) or 'none'})"
         if not str(reason or "").strip():
-            return [], None, f"skipping {name} needs a reason"
+            # the whole answer is refused (nothing is skipped, nothing runs yet): the gate asks again with this
+            return [], None, (f"skipping {name} needs a reason: nothing was skipped. Answer again with a reason per "
+                              f"step (skip: {{\"{name}\": \"<reason>\"}}) or one for all (skip: [\"{name}\"], why: "
+                              "\"<reason>\"); skip: [] runs every step")
         out.append({"step": name, "band": by[name]["band"], "reason": str(reason).strip()})
     lenses = payload.get("lenses")
     lenses = [str(x) for x in lenses if str(x).strip()] if isinstance(lenses, list) else None

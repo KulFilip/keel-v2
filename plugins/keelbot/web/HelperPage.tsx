@@ -1,8 +1,9 @@
 // KeelBot on a page of its own (#/helper): the same chats, modes and models as the panel in the Code page, in one
-// wide chat column. A file:line link opens the Code page at that line; "Back to the code" goes to the Code page.
+// wide chat column. A file:line link opens the Code page at that line (0.18.57: as the branch or ref the answer was made
+// from has it, `?ref=`); "Back to the code" goes to the Code page.
 
 import { useLayoutEffect, useRef } from "react";
-import { go } from "@keel/web-sdk";
+import { codeHref, go } from "@keel/web-sdk";
 import { HelperPanel } from "./HelperPanel";
 
 export function HelperPage({ pid }: { pid: string }) {
@@ -19,7 +20,10 @@ export function HelperPage({ pid }: { pid: string }) {
   return (
     <div ref={root} className="helper-page">
       <HelperPanel pid={pid} layout="page"
-        onOpenFile={(path, line) => go("repo", line ? `${path}:${line}` : path)}
+        onOpenFile={(path, line, ref) => {
+          if (ref) location.hash = codeHref(path, line, ref);
+          else go("repo", line ? `${path}:${line}` : path);
+        }}
         onOpenDiff={(path) => go("repo", path)}
         onClose={() => go("repo")} />
     </div>
