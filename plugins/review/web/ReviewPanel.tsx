@@ -94,7 +94,6 @@ export function OverviewTab({
   if (db?.shown) parts.push(["database", "Database", db.count]);
   if (pid) parts.push(["system", "System", null]);
   const shown = parts.some(([k]) => k === part) ? part : "overview";
-  const files = new Set(view.files.map((f) => f.path));
   return (
     <div className="rv-stack">
       {parts.length > 1 && (
