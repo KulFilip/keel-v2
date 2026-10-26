@@ -175,3 +175,14 @@ def test_its_tui_part_passes_lint_and_is_the_one_keel_tuis_tests_use():
     assert {k["key"] for k in mode["keys"]} == set("crxvefoFspg")
     # every key that changes something asks first: a yes / no, or the person's own words
     assert all(k.get("confirm") or k.get("ask") for k in mode["keys"] if (k.get("call") or {}).get("method") == "POST")
+
+
+def test_a_partial_ai_run_says_which_files_it_did_not_read():
+    # keel 0.18.57: the overview and the findings name what no reviewer read (ReviewAiService coverage)
+    full = {"partial": False, "coverage": {"files": 3, "read": 3, "unread": [], "known": True}}
+    assert mcp_tools._coverage(full) == ["  read all 3 changed file(s)"]
+    part = {"partial": True, "coverage": {"files": 70, "read": 24, "unread": [f"m/V{n}.php" for n in range(46)], "known": True}}
+    line = mcp_tools._coverage(part)[0]
+    assert line.startswith("  PARTIAL: read 24 of 70 changed file(s); not read: m/V0.php, m/V1.php") and line.endswith("… 26 more")
+    assert mcp_tools._coverage({"coverage": {"files": 3, "read": None, "known": False}}) == []
+    assert mcp_tools._coverage({}) == []
