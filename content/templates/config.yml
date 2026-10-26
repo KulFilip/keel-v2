@@ -125,7 +125,9 @@ setup:
 # A seventh lens is a line here plus a brief in the hunt skill's references/lenses.md — the
 # flow, the guards and the agents do not change.
 hunt:
-  lenses: [exploration, observability, security, behavioral, technical, concurrency, idempotency, contract-drift, reachability, test-integrity, data-migration]
+  # Without `lenses` the hunt proposes the ones this project's code calls for (a small library gets technical and
+  # test-integrity; a service with routes, a database and auth gets most of them). Set it to always propose your own.
+  # lenses: [exploration, observability, security, behavioral, technical, concurrency, idempotency, contract-drift, reachability, test-integrity, data-migration]
   # `messaging` ships a brief but stays off here: most projects have no broker, and a lens with
   # nothing to act on spends a hunter every sweep. Add it, and `messaging: [api]` below, when
   # there is one — it needs a dedicated broker, never a shared environment.
@@ -160,7 +162,7 @@ hunt:
   default_scope: diff         # all | diff | <comma-separated paths>
   max_candidates_per_lens: 12
   prove_concurrency: 4
-  report_dir: docs/hunts
+  # report_dir: docs/hunts     # the default; with layout keel / external .keel/hunts, outside git and not committed
 
 loops:
   # paired = test commit then code commit, with red-done proving the test failed first.

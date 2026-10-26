@@ -312,7 +312,8 @@ def section(state: dict) -> list[str]:
     mk = state.get("markers") or {}
     ran = (mk.get("e2e") or {}).get("E2E-RESULT")
     needed = any((mk.get(s) or {}).get("E2E") == "yes" for s in ("intake", "plan"))
-    out.append(f"- Regression e2e: {'yes (' + ran + ')' if ran else 'yes' if needed else 'no'}")
+    passed = next((x for x in data.get("ship_skipped") or [] if x.get("step") == "e2e"), None)
+    out.append(f"- Regression e2e: {'yes (' + ran + ')' if ran else 'skipped: ' + str(passed.get('reason')) if passed and needed else 'yes' if needed else 'no'}")
     if info.get("resets"):
         out.append(f"- Resets: {info['resets']} (two failed fixes each)")
     findings = [str(f) for f in hunt.get("findings") or []]

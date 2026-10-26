@@ -511,10 +511,12 @@ DOCS: dict[str, dict] = {
         "summary": "Writes docs/hunts/<run>/report.md and the recipes; refuses while any candidate has no verdict.",
         "steps": ["Refuses while any candidate has no verdict.",
                   "Writes report.md (groups by worst severity, every finding with its recipe) and repro/<file> for each "
-                  "proven recipe; marks needs_e2e for user-visible ones; the triage gate shows the summary."],
+                  "proven recipe; marks needs_e2e for user-visible ones (none in a project with no UI or HTTP layer); the "
+                  "triage gate shows the summary."],
     },
     "hunt_commit": {
-        "summary": "Commits only docs/hunts/<run>/ as docs(HUNT-<run>): bug hunt: N proven, M suspected.",
+        "summary": "Commits only docs/hunts/<run>/ as docs(HUNT-<run>): bug hunt: N proven, M suspected. With layout "
+                   "keel or external the report is in .keel/hunts/<run>/, outside git: nothing is committed.",
     },
     "hunt_close": {
         "summary": "Closes a finding or group (fixed | accepted | wontfix) with the note from the gate's answer.",

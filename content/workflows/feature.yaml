@@ -319,6 +319,7 @@ steps:
       {{data.smoke.checks}}
   - { id: smoke_commit, kind: code, name: run smoke + commit, action: verify_smoke+commit, phase: smoke, rounds: 2, skippable: optional, group: smoke }
   - { id: smoke_gate, kind: gate, name: smoke, back: smoke, phase: smoke, skippable: optional, group: smoke }
+  # a project with no UI and no HTTP layer (a library): every e2e-phase step is skipped with a note (compiler._skipped)
   - { id: e2e_scope, kind: code, name: e2e criteria + tool, action: e2e_scope, phase: e2e, skippable: optional, group: e2e }
   - { id: e2e_needed, kind: branch, name: e2e criteria, when: { marker: E2E, equals: "yes", step: e2e_scope }, no: ready_show, phase: e2e, skippable: optional, group: e2e }
   - id: e2e_tool

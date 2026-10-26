@@ -56,7 +56,7 @@ DEFAULTS: dict = {
     "max_candidates_per_lens": 12,
     "prove_concurrency": 4,
     "prove_rounds": 3,
-    "report_dir": "docs/hunts",
+    "report_dir": "docs/hunts",           # layout keel / external: .keel/hunts (HIDDEN_REPORT_DIR), not committed
     # what the hunters and provers may reach (keel v1 hunt "name what the environment is, and whose it is"): a line on
     # the database / broker / services, and whether they are disposable. Unless disposable is true, every item says
     # they are shared: probe rows only, never delete what you did not create.
@@ -66,6 +66,9 @@ DEFAULTS: dict = {
     # has no knowledge base), always, never
     "map": "auto",
 }
+
+# 0.18.57 B11 where the report goes when keel's files stay out of git (layout keel or external, keel_engine/layout.py)
+HIDDEN_REPORT_DIR = ".keel/hunts"
 
 LENS_HELP = {
     "exploration": "drives the running stack and holds what comes back against what the contract promised",
@@ -86,9 +89,16 @@ LENS_HELP = {
 # ------------------------------------------------------------------ config
 
 def settings(root: str) -> dict:
-    """The hunt block of .keel/config.yml over keel's defaults (lens_lanes merged per lens)."""
-    own = (rules.load_config(root) or {}).get("hunt") or {}
+    """The hunt block of .keel/config.yml over keel's defaults (lens_lanes merged per lens). lenses_set: the project
+    names its lenses (else the hunt proposes the ones that fit it, fit_lenses). With layout keel or external keel's
+    default report folder (docs/hunts) is .keel/hunts: keel's files stay out of git there."""
+    kcfg = rules.load_config(root) or {}
+    own = kcfg.get("hunt") or {}
     out = {**DEFAULTS, **{k: v for k, v in own.items() if v is not None}}
+    out["lenses_set"] = bool(own.get("lenses"))
+    hidden = kcfg.get("layout") in ("keel", "external")
+    if hidden and str(out["report_dir"] or "").strip().strip("/") == DEFAULTS["report_dir"]:
+        out["report_dir"] = HIDDEN_REPORT_DIR
     out["lens_lanes"] = {**DEFAULTS["lens_lanes"], **(own.get("lens_lanes") or {})}
     out["severity_rubric"] = {**DEFAULTS["severity_rubric"], **(own.get("severity_rubric") or {})}
     # A lane with no files in the repo (no web code, say) gets no hunter: it would only search until it runs out of turns.
@@ -97,6 +107,38 @@ def settings(root: str) -> dict:
         out["lens_lanes"] = {lens: [ln for ln in lanes if ln == "both" or ln in present] or lanes
                              for lens, lanes in out["lens_lanes"].items()}
     return out
+
+
+def fit_lenses(root: str, cfg: dict) -> tuple[list[str], str]:
+    """(lenses, why) the hunt proposes when the project names none: the ones its code calls for, not all of them (a
+    4-file library swept with all 11 spent a hunter per lens on routes, browsers and migrations it does not have).
+    technical and test-integrity always; the lenses that drive a running stack (exploration, observability, behavioral,
+    reachability, idempotency) only with a UI or an HTTP layer; security with one, with auth code, or in a project
+    bigger than project_shape.SMALL files; concurrency with an HTTP layer, a broker or threads/async in the code;
+    contract-drift with a contract file or a web layer; data-migration with a database; messaging with a broker."""
+    from . import project_shape
+
+    s = project_shape.signals(root)
+    served = bool(s["http"])
+    want = {
+        "technical": True, "test-integrity": True,
+        "exploration": served, "observability": served, "behavioral": served, "reachability": served,
+        "security": served or bool(s["auth"]) or s["files"] > project_shape.SMALL,
+        "idempotency": served or bool(s["messaging"]),
+        "concurrency": served or bool(s["concurrency"] or s["messaging"]),
+        "contract-drift": bool(s["contract"] or s["web"]),
+        "data-migration": bool(s["db"]), "messaging": bool(s["messaging"]),
+    }
+    known = list(dict.fromkeys([*cfg["lenses"], *(["messaging"] if want["messaging"] and brief(root, "messaging") else [])]))
+    picked = [x for x in known if want.get(x, True)]
+    said = [f"{s['files']} source file(s)"]
+    said += [f"{name}: {s[k]}" for k, name in (("http", "UI or HTTP layer"), ("db", "database"), ("auth", "auth"),
+                                              ("messaging", "broker"), ("concurrency", "concurrency"),
+                                              ("contract", "contract")) if s[k]]
+    none = [name for k, name in (("http", "UI or HTTP layer"), ("db", "database"), ("auth", "auth code"),
+                                 ("messaging", "broker")) if not s[k]]
+    why = "; ".join(said) + (f"; no {', no '.join(none)}" if none else "")
+    return picked, why
 
 
 def lanes_present(root: str) -> set[str]:
@@ -676,10 +718,14 @@ def write_report(project: str, root: str, run_id: str) -> tuple[str | None, str]
     if waiting:
         return None, (f"{len(waiting)} finding(s) still have no verdict: {', '.join(waiting)}. A report is not a list of "
                       "guesses; every candidate needs a prover's verdict first.")
+    # 0.18.57 B12 a project with no UI and no HTTP layer (a library) has no journey an end-to-end test could drive
+    from .project_shape import ui_or_http
+
+    drivable = ui_or_http(root)[0]
     for c in cands:
         if c["status"] == "proven":
             spec = e2e_coverage(root, c)
-            update_candidate(project, run_id, c["id"], needs_e2e=not spec, e2e_spec=spec)
+            update_candidate(project, run_id, c["id"], needs_e2e=drivable and not spec, e2e_spec=spec)
     d = report_dir(root, run_id)
     if (d / "repro").is_dir():
         shutil.rmtree(d / "repro")
@@ -695,12 +741,22 @@ def write_report(project: str, root: str, run_id: str) -> tuple[str | None, str]
     return rel, f"wrote {rel} and {len(recs)} recipe(s): {c['proven']} proven, {c['unproven']} suspected, {c['false']} rejected"
 
 
+def kept_out_of_git(root: str, folder: str) -> bool:
+    """The report folder is not committed: under .keel/ (layout keel or external hide it from git) or ignored by git."""
+    rel = str(folder).replace("\\", "/").strip("/")
+    if rel == ".keel" or rel.startswith(".keel/"):
+        return True
+    return git.is_repo(root) and git.git(root, "check-ignore", "-q", rel).returncode == 0
+
+
 def report_committed(root: str, run: dict) -> tuple[bool, str]:
     if not run.get("report"):
         return False, "the report has not been rendered yet"
     if not git.is_repo(root):
         return True, ""
     folder = str(Path(run["report"]).parent)
+    if kept_out_of_git(root, folder):
+        return True, ""             # keel's files stay out of git (layout keel): nothing to commit, nothing to wait for
     dirty = git.git(root, "status", "--porcelain", "--", folder).stdout.strip()
     if dirty:
         return False, f"{folder}/ is not committed"

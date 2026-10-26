@@ -49,7 +49,7 @@ from ..tools import git, guard, mcp, testcmd
 from ..tools.agent_tools import ToolBox, command_env
 from ..workflows.model import Loop, Step, Workflow
 from . import container
-from . import agent_knowledge, clarify, guard_ctx, init_gates, markers, prompts, run_mode, spec_check, stack_setup, stacks
+from . import agent_knowledge, clarify, guard_ctx, init_gates, markers, prompts, project_shape, run_mode, spec_check, stack_setup, stacks
 from . import blockers as push_gates
 from . import choices as choices_mod
 from . import flow_actions
@@ -524,12 +524,12 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
             item = state.get("item") if step.per_item else None
             skipped = self._skipped(i, step, state)
             if skipped:
-                why, goto = skipped
+                why, goto, *more = skipped
                 ctx.emit("step.started", step=step.id, data={"name": step.name, "kind": step.kind, "phase": prev, "ac": ac,
                                                              "from": prev, "flow": self.wf.flow, "skipped": True})
                 ctx.emit("step.finished", step=step.id, data={"name": step.name, "kind": step.kind, "phase": prev, "ac": ac,
                                                               "ok": True, "note": why, "skipped": True})
-                return Command(update={"note": why, "current": step.id,
+                return Command(update={"note": why, "current": step.id, **(more[0] if more else {}),
                                        **({"unlocks": merged} if len(merged) != len(have) else {})}, goto=goto)
             started = {"name": step.name, "kind": step.kind, "phase": phase, "ac": ac, "from": prev, "flow": self.wf.flow,
                        "phase_changed": prev != phase, "transition_ok": rules.can_transition(prev, phase)}
@@ -556,9 +556,10 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
         node.__name__ = f"step_{step.id}"
         return node
 
-    def _skipped(self, i: int, step: Step, state: FlowState) -> tuple[str, str] | None:
-        """(why, where to) when this step does not run: turned off at the opening skip menu (the whole unit of steps
-        that share its group is passed over), or a retry_only step that nothing sent work back to."""
+    def _skipped(self, i: int, step: Step, state: FlowState) -> tuple | None:
+        """(why, where to[, state update]) when this step does not run: turned off at the opening skip menu (the whole
+        unit of steps that share its group is passed over), an e2e step in a project an end-to-end test cannot drive,
+        or a retry_only step that nothing sent work back to."""
         unit = ship_mod.unit_of(step)
         if step.skippable:
             skip = next((s for s in (state.get("data") or {}).get("ship_skipped") or [] if s.get("step") == unit), None)
@@ -567,6 +568,20 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
                 while j + 1 < len(self.wf.steps) and self.wf.steps[j + 1].skippable and ship_mod.unit_of(self.wf.steps[j + 1]) == unit:
                     j += 1
                 return f"{unit} skipped: {skip.get('reason') or 'no reason given'}", self.nav.after(j)
+        if step.phase == "e2e":
+            # 0.18.57 B12 any flow's e2e steps: a project with no UI and no HTTP layer (a library, a CLI) has nothing an
+            # end-to-end test could drive; the whole run of e2e steps is passed over and the PR body says why
+            yes, layer = project_shape.ui_or_http(self.ctx.root)
+            if not yes:
+                j = i
+                while j + 1 < len(self.wf.steps) and self.wf.steps[j + 1].phase == "e2e" \
+                        and self.nav.loop_of(j + 1) == self.nav.loop_of(i):
+                    j += 1
+                why = f"{layer}: an end-to-end test has nothing to drive in this project"
+                data = state.get("data") or {}
+                kept = [x for x in data.get("ship_skipped") or [] if x.get("step") != "e2e"]
+                return f"e2e skipped: {why}", self.nav.after(j), {"data": {**data, "ship_skipped": [
+                    *kept, {"step": "e2e", "band": "optional", "reason": why}]}}
         if step.per_ac and step.kind in ("agent", "parallel") and (step.agent or "") == "criterion-reviewer" \
                 and self._met_by_person(state, _ac(state)):
             # 0.18.28 a person approved "already passes" with the test in front of them: listed for the full-diff review

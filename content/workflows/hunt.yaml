@@ -2,10 +2,14 @@ id: hunt
 name: hunt (keel)
 keel_rules: true
 version: 1
+own_branch: false
 # A read-only bug hunt. Options (StartThread.settings, or a parent flow's seed): mode auto|semi (default semi),
-# scope all|diff|<path,path>, lenses [a, b] (default: hunt.lenses in .keel/config.yml), fast (the fast lenses, half the
-# cap, scope diff). Nothing here changes code: the output is docs/hunts/<run>/ and the backlog in the engine DB
-# (GET /projects/{p}/hunts). Semi mode also stops after the sweep and after the provers. The lens gate asks the mode
+# scope all|diff|<path,path>, lenses [a, b] (default: hunt.lenses in .keel/config.yml, else the lenses the project's
+# code calls for: hunt.fit_lenses), fast (the fast lenses, half the cap, scope diff). Nothing here changes code: the
+# output is the report folder and the backlog in the engine DB (GET /projects/{p}/hunts). The report folder follows the
+# layout: docs/hunts/<run>/, committed as docs(HUNT-<run>), or with layout keel / external .keel/hunts/<run>/, outside
+# git and not committed. own_branch: false: the hunt cuts no branch of its own (the api's start), a report needs none.
+# Semi mode also stops after the sweep and after the provers. The lens gate asks the mode
 # first (semi recommended unless the start said auto) and shows the stack's health. Without a knowledge base one
 # explorer maps the repository for every hunter (hunt.map: auto | always | never). Before the provers keel checks the
 # stack (commands.services starts it once); still down, the stack gate asks: recheck, prove anyway or stop.

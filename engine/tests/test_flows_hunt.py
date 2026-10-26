@@ -9,6 +9,7 @@ from conftest import decide, start, wait
 from keel_engine.runtime import hunt
 from keel_engine.workflows.templates import get_template
 from keel_engine.workflows.validate import validate
+from test_flows_a import serves_http
 from test_flows_base import answers, values
 
 SETTINGS = {"gates_mode": "every-ac", "cap_tokens": 0, "on_cap": "pause"}
@@ -174,6 +175,7 @@ def test_a_semi_hunt_from_lenses_to_triage(client, repo, monkeypatch):
 
 
 def test_an_auto_hunt_stops_only_at_the_lenses_and_the_triage_then_hands_over(client, repo, monkeypatch):
+    serves_http(repo)          # the demo is a library: a finding there needs no end-to-end test (B12)
     provers = {"F-001": lambda n: proof("F-001", "proven", "critical"),
                "F-002": lambda n: proof("F-002", "unproven", evidence="could not make it fail in 5 tries"),
                "F-003": lambda n: proof("F-003", "proven", "moderate")}

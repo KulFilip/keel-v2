@@ -494,7 +494,14 @@ def test_fix_no_gates_waives_both_gates_and_says_so(client, repo, monkeypatch):
     assert "gates.bug_gates: false" in body
 
 
+def serves_http(repo):
+    """The demo is a library: an e2e step is skipped there (B12). These tests give it an HTTP layer."""
+    write(repo, "requirements.txt", "flask\n")
+    commit_all(repo, "chore: serve the scores")
+
+
 def test_fix_from_a_hunt_seed_writes_the_regression_e2e(client, repo, monkeypatch):
+    serves_http(repo)
     seen = answers(monkeypatch, {})
     w = wf([{"id": "hand", "kind": "code", "name": "hand to fix", "action": "start_flow", "flow": "fix", "then": "end",
              "seed": {"title": "Ranks overflow", "recipe": "POST 1001 scores", "symptoms": ["500 on /ranks"], "needs_e2e": True}}])
@@ -562,6 +569,7 @@ def test_fix_evidence_and_symptoms_reach_the_investigators_and_the_plan_not_the_
 
 
 def test_fix_plan_can_ask_for_the_e2e(client, repo, monkeypatch):
+    serves_http(repo)
     seen = answers(monkeypatch, {"investigator": investigator(lambda r: "ROOT-CAUSE: confirmed\nE2E: yes")})
     tid = start(client, repo, workflow="fix", title="Average is wrong")
     wait(client, tid)
