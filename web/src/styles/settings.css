@@ -687,7 +687,9 @@ select.ss-input {
 }
 .ss-fold-a {
   color: var(--dim);
-  width: 12px;
+  width: 14px;
+  font-size: 14px;
+  flex: none;
 }
 .ss-fold-t {
   flex: 1;
@@ -1267,6 +1269,7 @@ select.ss-input {
 
 /* Plugins: the underline tabs */
 .ss-utabs {
+  scrollbar-width: none;
   display: flex;
   gap: 4px;
   overflow-x: auto;
@@ -1326,4 +1329,27 @@ select.ss-input {
     width: 100%;
     max-width: 240px;
   }
+}
+
+/* a model's row inside a setting's control column: its own height, its notes wrap */
+.ss-set-c > .ss-model {
+  flex: none;
+  width: 100%;
+}
+.ss-model .hint {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.ss-model .model-picker {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.ss-model select,
+.ss-prow-b select {
+  min-height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  padding: 0 8px;
 }

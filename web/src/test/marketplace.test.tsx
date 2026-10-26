@@ -1043,3 +1043,19 @@ describe("a workflow that needs a plugin", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("Settings › Plugins: the Installed filter (keel 0.18.57)", () => {
+  it("filters the rows by name and by state", async () => {
+    const user = userEvent.setup();
+    installSome();
+    await openPlugins();
+    expect(await screen.findByTestId("plugin-code")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Filter installed plugins"), "zzz-none");
+    expect(screen.queryByTestId("plugin-code")).toBeNull();
+    expect(screen.queryByTestId("keel-core")).toBeNull();
+    expect(screen.getByText("No installed plugin matches. Try the marketplace.")).toBeInTheDocument();
+    await user.clear(screen.getByLabelText("Filter installed plugins"));
+    await user.click(within(screen.getByRole("group", { name: "Show" })).getByRole("button", { name: "Updates" }));
+    expect(screen.queryByTestId("keel-core")).toBeNull();
+  });
+});
