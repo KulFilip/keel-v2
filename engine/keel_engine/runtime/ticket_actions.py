@@ -44,9 +44,13 @@ KEY = "ticket_review"
 FETCH_TIMEOUT = 90           # seconds: the start waits for prep's preflight fetch
 DOD = ".keel/dod.md"
 ONE_AGENT_LINES = 400        # at or under this many changed lines, one agent does every job
-BUG_GROUP_LINES = 800        # a larger diff splits the bug job into groups of about this size
-MAX_BUG_AGENTS = 2
+CHUNK_LINES = 700            # a larger diff gets one bug reviewer per area; an area bigger than this is split
+MAX_CHUNKS = 8               # at most this many area reviewers (the smallest areas are merged first)
+ITEMS_PER_JOB = 4            # checklist items one ticket / team reviewer judges
 MAX_FILES = 40               # files a job lists (the riskiest first)
+ITEM_BUDGET = 5200           # a job item's JSON stays under this (the prompt cuts an item at 6000 characters)
+MAX_CHECKS = 16              # second-look jobs (claims to confirm and items to settle) per review
+LOW_TOKENS_PER_LINE = 10     # reviewers that used fewer tokens per changed line did not read the diff
 SECTIONS = {
     "summary": "the verdict and one sentence",
     "notmet": "checklist items not done",
@@ -240,6 +244,148 @@ def risk_of(cfg: dict, file: str) -> tuple[str, int]:
     return (bucket, 5) if test else (bucket, 6)
 
 
+# ------------------------------------------------------------------ areas and lenses (keel 0.18.57)
+
+# Which part of the system a file belongs to, from its path alone (an unconfigured project too): a large change gets one
+# bug reviewer per area, so a migration, the message pipeline and the deploy config each get a reader of their own.
+AREAS = [
+    ("deploy-config", re.compile(r"(^|/)\.env(\.[\w.-]+)?$|(^|/)\.env$|(^|/)(docker-)?compose[\w.-]*\.ya?ml$|(^|/)Dockerfile[^/]*$|"
+                                 r"(^|/)(deploy|deployment|k8s|kubernetes|helm|charts|infra|terraform|ops|\.github)/|crontab$|"
+                                 r"(^|/)config/|(^|/)(application|settings|appsettings)[\w.-]*\.(ya?ml|json|properties)$|"
+                                 r"\.(tf|tfvars|ini|toml|properties|conf)$", re.I)),
+    ("migrations", re.compile(r"(^|/)(migrations?|db/migrate|flyway|liquibase|alembic|changelogs?)/|\.sql$", re.I)),
+    ("tests", re.compile(r"(^|/)(test|tests|__tests__|spec|specs)/|(^|/)test_[^/]+\.py$|_test\.(py|go|rb|exs?)$|_spec\.rb$|"
+                         r"\.(test|spec)\.(ts|tsx|js|jsx)$|Tests?\.(kt|java|php|cs)$", re.I)),
+    ("docs", DOC),
+    ("message-pipeline", re.compile(r"messag|consumer|listener|subscriber|queue|outbox|inbox|worker|cron|schedul|"
+                                    r"(^|/)jobs?/|kafka|rabbit|amqp|sqs|pubsub|retry|webhook|(^|/)console/|(^|/)commands?/", re.I)),
+    ("persistence", re.compile(r"repositor|doctrine|(^|/)dao|mapping|\.orm\.(xml|ya?ml)$|(^|/)entit|persistence|(^|/)models?/|"
+                               r"(^|/)db/|schema", re.I)),
+    ("api", re.compile(r"controller|(^|/)routes?|endpoint|(^|/)resources?/|(^|/)handlers?/|(^|/)api/|graphql", re.I)),
+    ("web", re.compile(r"\.(tsx?|jsx?|vue|svelte|css|scss|less|html)$", re.I)),
+]
+AREA_ORDER = ["migrations", "deploy-config", "message-pipeline", "persistence", "api", "core", "web", "tests"]
+
+# The lenses: one file per lens in content/review-lenses/<name>.md; its "## Checklist" section goes into the job item of
+# a reviewer whose area needs it (the rest of the file is the longer reference). The built-in text below is used when the
+# content folder has no such file (an older image), and is the same measured wording.
+LENS_NAMES = ["data-migration", "idempotency-retry", "silent-failure", "config-secrets", "test-quality", "contract-types"]
+LENS_FALLBACK = {
+    "data-migration": "Data migration and backfill: does each schema change work on the rows that already exist? Look "
+                      "at defaults and NOT NULL on existing rows, a missing backfill, a new table that existing code "
+                      "joins to (an INNER JOIN drops the old rows that have no row there yet), unique constraints and "
+                      "indexes the code relies on (catching a duplicate-key error needs a UNIQUE index in the migration, "
+                      "not only in the ORM mapping or the test schema), a down() that loses data, a lock on a big table.",
+    "idempotency-retry": "Concurrency and idempotency: what happens when a message is delivered twice, two workers or "
+                         "two cron runs overlap, or two requests race? Look for check-then-act without a lock or unique "
+                         "key, side effects (an external call, a booking, an e-mail) repeated on redelivery, a claim "
+                         "without SKIP LOCKED or a claim token, and status changes whose SQL WHERE clause does not "
+                         "enforce the allowed transitions and terminal states.",
+    "silent-failure": "Error handling and retry: does one failure stop a whole batch (a throw inside a loop)? Is every "
+                      "retry bounded, with a terminal state (dead, failed) a person can see? Is an error swallowed by a "
+                      "catch-all that only logs? Is a permanent error retried forever? Does a failure leave rows stuck "
+                      "(claimed, locked, half written)?",
+    "config-secrets": "Secrets and config: compare every env or config key the code reads (git grep the name in the "
+                      "reviewed version) with the keys .env, .env.*, compose, deploy and CI files define: a renamed or "
+                      "missing key breaks the boot. Look for wrong or unsafe defaults, committed secrets, and config "
+                      "that differs between test and prod, so the tests pass while prod breaks. Every .env and deploy "
+                      "change is read, even a one-line one.",
+    "test-quality": "Test quality: would each new or changed test fail if the code it covers broke? Look for assertions "
+                    "that are always true (>= 0, not null on a service), tests of the happy path only where the ticket "
+                    "names a failure case, mocks that replace the thing under test, a test schema or config that "
+                    "differs from production so the test passes while prod breaks, and weakened or deleted assertions.",
+    "contract-types": "Contract and types: does a changed public name, route, payload, status code, event or type still "
+                      "match every caller and the documented contract (git grep the name)? Look for a field renamed on "
+                      "one side only, a nullable value the other side treats as present, an enum value the consumer "
+                      "does not know, and a breaking change the PR does not call out.",
+}
+
+
+def lens_text(name: str) -> str:
+    """A lens's checklist: the "## Checklist" section of content/review-lenses/<name>.md, else the built-in text."""
+    try:
+        text = (config.content_dir() / "review-lenses" / f"{name}.md").read_text()
+        m = re.search(r"^## Checklist\s*\n(.*?)(?=^## |\Z)", text, re.S | re.M)
+        if m and m.group(1).strip():
+            return " ".join(m.group(1).split())
+    except OSError:
+        pass
+    return LENS_FALLBACK[name]
+
+
+class _Lenses(dict):
+    """LENSES[name] reads the lens file (so a content update needs no code change)."""
+    def __missing__(self, name):
+        return lens_text(name)
+
+
+LENSES = _Lenses({})
+LENS_FOR_AREA = {
+    "migrations": ["data-migration", "idempotency-retry"],
+    "persistence": ["data-migration", "idempotency-retry"],
+    "message-pipeline": ["idempotency-retry", "silent-failure"],
+    "deploy-config": ["config-secrets"],
+    "api": ["silent-failure", "contract-types"],
+    "tests": ["test-quality"],
+}
+LENS_BY_NAME = [
+    (re.compile(r"lock|claim|idempot|outbox|dedup|unique|status|state", re.I), "idempotency-retry"),
+    (re.compile(r"retry|backoff|client|gateway|adapter|consumer|handler|publisher|webhook", re.I), "silent-failure"),
+    (re.compile(r"schema|mapping|\.orm\.|entity|migration|\.sql$", re.I), "data-migration"),
+]
+
+
+def area_of(file: str) -> str:
+    """The area a changed file belongs to (AREAS, first match), else core."""
+    for name, rx in AREAS:
+        if rx.search(file):
+            return name
+    return "core"
+
+
+def lenses_for(files: list[str]) -> list[str]:
+    """The lenses a set of files needs, from their areas and their names (in LENSES order)."""
+    got: set[str] = set()
+    for f in files:
+        got.update(LENS_FOR_AREA.get(area_of(f), []))
+        if area_of(f) not in ("tests", "docs", "web"):
+            got.update(lens for rx, lens in LENS_BY_NAME if rx.search(f))
+    return [name for name in LENS_NAMES if name in got]
+
+
+def chunk_by_area(ranked: list[dict]) -> list[dict]:
+    """The code files in chunks for the bug reviewers: one per area (AREA_ORDER), an area bigger than CHUNK_LINES split,
+    then the two smallest chunks merged until there are at most MAX_CHUNKS. Docs are left out; nothing else is."""
+    by_area: dict[str, list[dict]] = {}
+    for f in ranked:
+        a = area_of(f["file"])
+        if a != "docs":
+            by_area.setdefault(a, []).append(f)
+    chunks: list[dict] = []
+    for a in AREA_ORDER:
+        part: list[dict] = []
+        size = 0
+        for f in by_area.get(a, []):
+            n = f["added"] + f["removed"]
+            if part and size + n > CHUNK_LINES:
+                chunks.append({"areas": [a], "files": part, "lines": size})
+                part, size = [], 0
+            part.append(f)
+            size += n
+        if part:
+            chunks.append({"areas": [a], "files": part, "lines": size})
+    while len(chunks) > MAX_CHUNKS:
+        chunks.sort(key=lambda c: c["lines"])
+        a, b = chunks[0], chunks[1]
+        merged = {"areas": list(dict.fromkeys(a["areas"] + b["areas"])), "files": a["files"] + b["files"],
+                  "lines": a["lines"] + b["lines"]}
+        chunks = [merged] + chunks[2:]
+        chunks.sort(key=lambda c: min(AREA_ORDER.index(x) for x in c["areas"]))
+    for c in chunks:
+        c["lenses"] = lenses_for([f["file"] for f in c["files"]])
+    return chunks
+
+
 # ------------------------------------------------------------------ script checks (AUTO)
 
 DEBUG = re.compile(r"\b(console\.(log|debug)\(|System\.out\.print|println\(|printStackTrace\(\)|var_dump\(|\bdd\(|"
@@ -325,28 +471,26 @@ def route(item: dict, ranked: list[dict]) -> list[str]:
 
 
 def plan(ranked: list[dict], items: list[dict]) -> list[dict]:
-    """One `all` job for a small change; else ticket, team, bugs (in up to two groups) and quality, in parallel."""
+    """One `all` job for a small change. A larger one: the ticket's and the team's items in jobs of ITEMS_PER_JOB (each
+    with the files its items route to), one `bugs` job per area chunk (chunk_by_area, with its lenses) and quality, in
+    parallel. Every code file is in exactly one bugs job: nothing is left for nobody to read."""
     lines = sum(f["added"] + f["removed"] for f in ranked)
     open_ = [it for it in items if not it.get("auto")]
     every = [f["file"] for f in ranked]
     if lines <= ONE_AGENT_LINES:
-        return [{"job": "all", "items": [it["id"] for it in open_], "files": every}]
+        return [{"job": "all", "items": [it["id"] for it in open_], "files": every, "lenses": lenses_for(every)}]
     jobs = []
+    order = {f: n for n, f in enumerate(every)}
     for kind, src in (("ticket", "ticket"), ("team", "team")):
-        mine = [it["id"] for it in open_ if it["from"] == src]
-        if mine:
-            jobs.append({"job": kind, "items": mine, "files": every})
-    code = [f for f in ranked if f["bucket"] != "docs"]
-    groups: list[list[str]] = [[]]
-    n = 0
-    for f in code:
-        size = f["added"] + f["removed"]
-        if groups[-1] and n + size > BUG_GROUP_LINES and len(groups) < MAX_BUG_AGENTS:
-            groups.append([])
-            n = 0
-        groups[-1].append(f["file"])
-        n += size
-    jobs += [{"job": "bugs", "items": [], "files": g} for g in groups if g]
+        mine = [it for it in open_ if it["from"] == src]
+        for n in range(0, len(mine), ITEMS_PER_JOB):
+            group = mine[n:n + ITEMS_PER_JOB]
+            files = sorted({f for it in group for f in it.get("files") or []}, key=lambda f: order.get(f, 10 ** 6))
+            jobs.append({"job": kind, "items": [it["id"] for it in group], "files": files or every[:MAX_FILES]})
+    for c in chunk_by_area(ranked):
+        jobs.append({"job": "bugs", "items": [], "files": [f["file"] for f in c["files"]], "area": " + ".join(c["areas"]),
+                     "lenses": c["lenses"]})
+    code = [f for f in ranked if area_of(f["file"]) != "docs"]
     if code:
         jobs.append({"job": "quality", "items": [], "files": [f["file"] for f in code[:15]]})
     return jobs
@@ -362,6 +506,7 @@ JOB_TEXT = {
     "bugs": "only problems the change introduces in these files that will really break",
     "quality": "only these files: do they follow this codebase's own patterns (the like: file) and the standards",
     "check": "one claim: read its lines and answer whether it is true",
+    "settle": "one checklist item nobody could decide: read the code it needs and decide it, or say what you could not read",
 }
 
 
@@ -566,12 +711,19 @@ def _prep(a):
     read = (f"git diff {src['base_ref']}...{src['ref']} -- <file>   ·   git show {src['ref']}:<file> | sed -n 'a,bp'"
             f"   ·   the base version: git show {src['base_ref']}:<file>")
     job_items = [_job_item(n, j, review, read) for n, j in enumerate(jobs, 1)]
+    # what each reviewer must read: claims compares it with the READ lines they give back (a partial review is named)
+    review["jobs"] = [{"id": it["id"], "job": j["job"], "files": list(j["files"])} for it, j in zip(job_items, jobs)]
+    review["reviewable"] = [f["file"] for f in ranked if area_of(f["file"]) != "docs"]
     pack = render_pack(review, jobs)
     note = (f"Review of {_what(src)}: {len(ranked)} file(s), +{review['added']} -{review['removed']}; "
             f"{len(from_ticket)} ticket item(s), {len(team)} from {dod_source}; "
-            f"{len(jobs)} reviewer job(s): {', '.join(j['job'] for j in jobs)}."
+            f"{len(jobs)} reviewer job(s): {', '.join(_job_name(j) for j in jobs)}."
             + (f" {src['fallback']}" if src.get("fallback") else ""))
     return _result(True, note, pack, {"data": {**a.data, KEY: review, "ticket_jobs": job_items, "ticket_pack": pack}})
+
+
+def _job_name(job: dict) -> str:
+    return job["job"] + (f" ({job['area']})" if job.get("area") else "")
 
 
 def _what(src: dict) -> str:
@@ -582,24 +734,41 @@ def _what(src: dict) -> str:
 
 def _job_item(n: int, job: dict, review: dict, read: str) -> dict:
     by_file = {f["file"]: f for f in review["files"]}
-    files = []
-    for name in job["files"][:MAX_FILES]:
-        f = by_file.get(name) or {"file": name}
-        files.append(f"{name} [{f.get('bucket', '?')}] +{f.get('added', 0)} -{f.get('removed', 0)}"
-                     + (f"  like: {f['like']}" if f.get("like") else ""))
-    if len(job["files"]) > MAX_FILES:
-        files.append(f"… {len(job['files']) - MAX_FILES} more (lower risk)")
     by_item = {it["id"]: it for it in review["items"]}
-    out = {"id": f"{job['job']}-{n}", "title": f"{job['job']} job", "job": job["job"], "what": JOB_TEXT[job["job"]],
-           "read": read, "files": files,
-           "items": [{"id": i, "text": by_item[i]["text"], "files": by_item[i].get("files") or [],
-                      **({"script": by_item[i]["hint"]} if by_item[i].get("hint") else {})} for i in job["items"]],
-           "answer": "result lines only (see your role), then TICKET-REVIEW: done"}
-    auto = [f"{it['id']} AUTO {it['verdict']}: {it['evidence']}" for it in review["items"] if it.get("auto")]
-    if auto and job["job"] in ("all", "ticket", "team"):
-        out["decided"] = auto
-    if job["job"] in ("all", "quality") and review.get("standards"):
-        out["standards"] = [f"git show {review['source']['base_ref']}:{s}" for s in review["standards"]]
+
+    def build(max_files: int, item_files: int) -> dict:
+        files = []
+        for name in job["files"][:max_files]:
+            f = by_file.get(name) or {"file": name}
+            files.append(f"{name} [{f.get('bucket', '?')}] +{f.get('added', 0)} -{f.get('removed', 0)}"
+                         + (f"  like: {f['like']}" if f.get("like") else ""))
+        if len(job["files"]) > max_files:
+            files.append(f"… {len(job['files']) - max_files} more: " + ", ".join(job["files"][max_files:]))
+        out = {"id": f"{job['job']}-{n}", "title": f"{job['job']} job" + (f": {job['area']}" if job.get("area") else ""),
+               "job": job["job"], "what": JOB_TEXT[job["job"]], "read": read, "files": files,
+               "items": [{"id": i, "text": by_item[i]["text"], "files": (by_item[i].get("files") or [])[:item_files],
+                          **({"script": by_item[i]["hint"]} if by_item[i].get("hint") else {})} for i in job["items"]],
+               "answer": "result lines only (see your role): one READ line per file you read, then the job's lines, "
+                         "then TICKET-REVIEW: done"}
+        if job.get("area"):
+            out["area"] = job["area"]
+        if job.get("lenses"):
+            out["lenses"] = [f"{name}: {LENSES[name]}" for name in job["lenses"]]
+        auto = [f"{it['id']} AUTO {it['verdict']}: {it['evidence']}" for it in review["items"] if it.get("auto")]
+        if auto and job["job"] in ("all", "ticket", "team"):
+            out["decided"] = auto
+        if job["job"] in ("all", "quality") and review.get("standards"):
+            out["standards"] = [f"git show {review['source']['base_ref']}:{s}" for s in review["standards"]]
+        return out
+
+    # the item must reach the agent whole: fewer listed files (the rest still named, in one line) before anything is cut
+    for max_files, item_files in ((MAX_FILES, 6), (25, 3), (12, 2), (6, 1)):
+        out = build(max_files, item_files)
+        if len(json.dumps(out, indent=2, ensure_ascii=False)) <= ITEM_BUDGET:
+            return out
+    out["lenses"] = [x.split(":", 1)[0] for x in out.get("lenses") or []] or out.get("lenses")
+    if not out.get("lenses"):
+        out.pop("lenses", None)
     return out
 
 
@@ -621,7 +790,10 @@ def render_pack(review: dict, jobs: list[dict]) -> str:
     for it in review["items"]:
         tag = f"AUTO {it['verdict']}: {it['evidence']}" if it.get("auto") else "files " + ", ".join(it.get("files") or [])
         out += [f"  {it['id']:<4} {it['text'][:90]}", f"       {tag}"]
-    out += ["", "plan      " + ", ".join(j["job"] for j in jobs)]
+    out += ["", "plan      " + ", ".join(_job_name(j) for j in jobs)]
+    for j in jobs:
+        if j.get("lenses"):
+            out.append(f"          {_job_name(j)}: lenses {', '.join(j['lenses'])}")
     return "\n".join(out)
 
 
@@ -753,10 +925,12 @@ def _old_problem(out: str) -> str:
 
 ITEM_VERDICTS = ("met", "not-met", "unclear")
 SEVERITIES = ("blocking", "minor")
+CHECK_VERDICTS = ("confirmed", "rejected", "unverified", "met", "not-met")
 
 
 def _where(text: str) -> tuple[str | None, int | None]:
-    m = re.match(r"^(.+?)(?::(\d+))?$", str(text or "").strip())
+    """`src/A.kt:42`, `src/A.kt:36-50`, `src/A.kt:~35` or `src/A.kt` -> (file, first line)."""
+    m = re.match(r"^(.+?)(?::~?(\d+)(?:\s*-\s*\d+)?)?$", str(text or "").strip().split(" (", 1)[0].split(" ", 1)[0])
     if not m or m.group(1) in ("-", ""):
         return None, None
     return m.group(1), int(m.group(2)) if m.group(2) else None
@@ -764,20 +938,36 @@ def _where(text: str) -> tuple[str | None, int | None]:
 
 def parse_lines(text: str) -> dict:
     """`T1 | met | src/A.kt:42 | why`, `F | blocking | where | what | to do`, `Q | where | rule | what | to do`, `S | ...`,
-    `CHECK | confirmed | why`."""
-    out: dict = {"items": [], "findings": [], "quality": [], "summary": [], "checks": [], "bad": []}
+    `READ | file` (a file the reviewer read), `GAP | file | why` (one it could not read), `CHECK | confirmed | why`
+    (rejected, unverified; for an item to settle: met, not-met, unverified)."""
+    out: dict = {"items": [], "findings": [], "quality": [], "summary": [], "checks": [], "bad": [], "read": [], "gaps": [], "set_aside": []}
     for raw in str(text or "").splitlines():
         line = re.sub(r"^\s*[-*]\s+", "", raw).strip().strip("`")
         if "|" not in line:
             continue
-        p = [x.strip() for x in line.split("|")]
+        p = [x.strip().strip("`") for x in line.split("|")]
         head = p[0].upper()
         if head == "S":
             out["summary"].append(" | ".join(p[1:])[:300])
+        elif head == "R" and len(p) > 2 and p[2].lower() == "skipped":
+            f, _n = _where(p[1])
+            if f:
+                out["gaps"].append({"file": f, "why": " | ".join(p[3:])[:300] or "skipped"})
+        elif head == "X":
+            f, _n = _where(p[1] if len(p) > 1 else "")
+            if f:
+                out["set_aside"].append({"file": f, "why": " | ".join(x for x in p[2:] if x)[:300]})
+        elif head in ("READ", "R"):
+            p = p[:2]
+            out["read"] += [f.strip("`'\"") for x in p[1:] for f in re.split(r"[,\s]+", x) if f.strip("`'\"") not in ("", "-")]
+        elif head == "GAP":
+            f, _n = _where(p[1] if len(p) > 1 else "")
+            if f:
+                out["gaps"].append({"file": f, "why": " | ".join(p[2:])[:300] or "not read"})
         elif head == "CHECK":
             v = (p[1] if len(p) > 1 else "").lower()
-            if v in ("confirmed", "rejected"):
-                out["checks"].append({"verdict": v, "why": " | ".join(p[2:])[:300]})
+            if v in CHECK_VERDICTS:
+                out["checks"].append({"verdict": v, "why": " | ".join(x for x in p[2:] if x and x != "-")[:400]})
         elif head == "Q":
             f, n = _where(p[1] if len(p) > 1 else "")
             out["quality"].append({"file": f, "line": n, "rule": (p[2] if len(p) > 2 else "")[:80],
@@ -792,6 +982,12 @@ def parse_lines(text: str) -> dict:
                                     "todo": " | ".join(p[4:])[:300] or None})
         elif re.fullmatch(r"[TD]\d+", head):
             v = (p[1] if len(p) > 1 else "").lower()
+            if v in SEVERITIES:
+                # a problem written on an item's line (T2 | minor | ...): kept as a finding, not lost
+                f, n = _where(p[2] if len(p) > 2 else "")
+                out["findings"].append({"severity": v, "file": f, "line": n, "text": (p[3] if len(p) > 3 else "")[:400],
+                                        "todo": " | ".join(p[4:])[:300] or None})
+                continue
             if v not in ITEM_VERDICTS:
                 out["bad"].append(f'{head} has verdict "{p[1] if len(p) > 1 else ""}"')
                 continue
@@ -802,9 +998,95 @@ def parse_lines(text: str) -> dict:
 
 
 def _merge_item(a: dict | None, b: dict) -> dict:
-    """An item judged twice: evidence that it is met wins, then a not-met over an unclear."""
-    rank = {"met": 3, "not-met": 2, "unclear": 1}
-    return b if not a or rank.get(b["verdict"], 0) > rank.get(a["verdict"], 0) else a
+    """An item judged on several lines (one per file or per part of it): one not-met line makes it not-met, and every
+    not-met line's evidence is kept (keel <= 0.18.56 let a "met" line for another part win and dropped the problem);
+    then met over unclear."""
+    if not a:
+        return dict(b)
+    rank = {"not-met": 3, "met": 2, "unclear": 1}
+    if a["verdict"] == b["verdict"] == "not-met":
+        both = dict(a)
+        both["evidence"] = " · ".join(x for x in (a.get("evidence"), b.get("evidence")) if x)[:1200] or None
+        both["todo"] = " · ".join(x for x in (a.get("todo"), b.get("todo")) if x)[:800] or None
+        return both
+    return dict(b) if rank.get(b["verdict"], 0) > rank.get(a["verdict"], 0) else a
+
+
+COMMON = {"this", "that", "with", "from", "they", "there", "when", "which", "would", "could", "every", "only", "line",
+          "file", "code", "change", "changes", "breaks", "break", "because", "after", "before", "still", "into", "does",
+          "also", "then", "than", "same", "their", "them", "never", "both", "here", "where", "what", "while"}
+NOT_SEEN = re.compile(r"\b(I )?(could not|cannot|can't|did not|didn't) (see|check|verify|read|confirm)\b|not in my (list|files)",
+                      re.I)
+
+
+def _words_of(text: str) -> set[str]:
+    return {w for w in re.split(r"[^a-z0-9_]+", str(text or "").lower()) if len(w) > 3 and w not in COMMON}
+
+
+def dedupe(findings: list[dict]) -> list[dict]:
+    """The merge step: one finding per problem. Same file, lines within 5 of each other (or no line) and at least two
+    telling words alike, or the same text: one finding, the higher severity kept, `seen` counts the reviewers that saw
+    it. A finding that says its writer could not see or check the code it is about is kept, marked unverified (it is a
+    question, not a bug)."""
+    out: list[dict] = []
+    for f in sorted(findings, key=lambda f: SEVERITIES.index(f["severity"])):
+        twin = None
+        for o in out:
+            if o.get("file") != f.get("file"):
+                continue
+            near = o.get("line") is None or f.get("line") is None or abs(o["line"] - f["line"]) <= 5
+            alike = len(_words_of(o["text"]) & _words_of(f["text"])) >= 2 or o["text"].strip() == f["text"].strip()
+            if near and alike:
+                twin = o
+                break
+        if twin is None:
+            g = {**f, "seen": 1}
+            if NOT_SEEN.search(f["text"]):
+                g["unverified"] = "its reviewer could not see the code it is about"
+            out.append(g)
+        else:
+            twin["seen"] = twin.get("seen", 1) + 1
+    return out
+
+
+def _norm(path: str) -> str:
+    return str(path or "").strip().strip("`'\"").lstrip("./")
+
+
+def coverage(review: dict, results: list[dict]) -> dict:
+    """Which reviewable files no reviewer read: each reviewer names what it read (READ) and could not (GAP). A file is
+    read when any reviewer read it. `known` is False when no reviewer gave READ lines at all (an older agent prompt)."""
+    want = [f for f in review.get("reviewable") or []]
+    read: set[str] = set()
+    gaps: dict[str, str] = {}
+    for r in results:
+        p = parse_lines(r.get("text") or "")
+        read.update(_norm(x) for x in p["read"])
+        for g in p["gaps"]:
+            gaps.setdefault(_norm(g["file"]), g["why"])
+
+    def seen(f: str) -> bool:
+        return f in read or any(x and (f.endswith("/" + x) or x.endswith("/" + f)) for x in read if "/" in x or x == f)
+    unread = [f for f in want if not seen(f)]
+    return {"files": len(want), "read": len(want) - len(unread), "unread": unread,
+            "gaps": {f: gaps[f] for f in unread if f in gaps}, "known": bool(read or gaps)}
+
+
+def tokens_per_line(results: list[dict], lines: int) -> float | None:
+    """The reviewers' tokens (fresh + cached input + output) per changed line, or None when they did not say."""
+    total = sum(int((r.get("usage") or {}).get(k) or 0) for r in results for k in ("tokens_in", "tokens_cached", "tokens_out"))
+    if not total or not lines:
+        return None
+    return total / lines
+
+
+def coverage_warning(per_line: float | None, lines: int) -> str | None:
+    """A review whose reviewers used far fewer tokens than the diff has lines did not read the diff (keel 0.18.56: a
+    5,200-line PR "reviewed" with 11.6k tokens). Reading a changed line once costs about 10 tokens."""
+    if per_line is None or lines < 50 or per_line >= LOW_TOKENS_PER_LINE:
+        return None
+    return (f"the reviewers used {per_line:.1f} tokens per changed line (+/-{lines} lines); reading a diff once takes "
+            f"about {LOW_TOKENS_PER_LINE}, so the diff was probably not read: treat this review as partial")
 
 
 async def ticket_claims(a):
@@ -813,8 +1095,9 @@ async def ticket_claims(a):
 
 def _claims(a):
     review = _review(a)
+    results = a.data.get("reviewers_results") or []
     got = {"items": [], "findings": [], "quality": [], "summary": [], "bad": []}
-    for r in a.data.get("reviewers_results") or []:
+    for r in results:
         p = parse_lines(r.get("text") or "")
         for k in got:
             got[k] += p[k]
@@ -825,12 +1108,28 @@ def _claims(a):
             got["bad"].append(f"unknown item {it['id']}")
             continue
         by_item[it["id"]] = _merge_item(by_item.get(it["id"]), it)
-    findings = sorted(got["findings"], key=lambda f: SEVERITIES.index(f["severity"]))
+    findings = dedupe(got["findings"])
     review["judged"] = by_item
     review["findings"] = findings
     review["quality"] = got["quality"][:12]
     review["summary"] = " ".join(got["summary"])[:600] or None
     review["bad_lines"] = got["bad"][:20]
+
+    # what was read: a review that read only part of the change says so, and one that read nothing stops here
+    lines = int(review.get("added") or 0) + int(review.get("removed") or 0)
+    cov = coverage(review, results)
+    per_line = tokens_per_line(results, lines)
+    warn = None if a.fake else coverage_warning(per_line, lines)
+    review["coverage"] = {**cov, "tokens_per_line": round(per_line, 1) if per_line else None, "warning": warn}
+    review["partial"] = bool(cov["known"] and cov["unread"]) or bool(warn) or (bool(results) and not cov["known"] and not a.fake)
+    if results and cov["known"] is False and not a.fake and (warn or per_line is None):
+        why = warn or "no reviewer said which files it read"
+        return _stop(f"The review stopped: the change was not read ({why}). Nothing is reported as done.",
+                     "Run the review again; for a very large change, review it in parts (branch by branch or area by area).")
+    if cov["known"] and cov["files"] and cov["read"] == 0:
+        return _stop(f"The review stopped: no reviewer read any of the {cov['files']} changed file(s). Nothing is reported "
+                     "as done.", "\n".join(f"{f}: {w}" for f, w in list(cov["gaps"].items())[:20]))
+
     src = review.get("source") or {}
     read = f"git diff {src.get('base_ref')}...{src.get('ref')} -- <file>   ·   git show {src.get('ref')}:<file> | sed -n 'a,bp'"
     claims = []
@@ -842,13 +1141,36 @@ def _claims(a):
         if f["severity"] == "blocking":
             at = f"{f['file']}:{f['line']}" if f.get("file") and f.get("line") else (f.get("file") or "-")
             claims.append({"kind": "finding", "target": n, "claim": f"blocking bug at {at}: {f['text']}"})
-    checks = [{"id": f"check-{n}", "title": c["claim"][:80], "job": "check", "what": JOB_TEXT["check"], "read": read,
-               "claim": c["claim"], "kind": c["kind"], "target": c["target"],
-               "answer": "CHECK | confirmed | <why>  or  CHECK | rejected | <why>, then TICKET-REVIEW: done"}
-              for n, c in enumerate(claims, 1)]
-    note = (f"{len(by_item)} item verdict(s), {len(findings)} finding(s), {len(got['quality'])} quality note(s); "
-            f"{len(checks)} claim(s) to check" + (f"; {len(got['bad'])} line(s) not understood" if got["bad"] else "") + ".")
-    return _result(True, note, "\n".join(got["bad"][:20]), {"data": {**a.data, KEY: review, "ticket_checks": checks}})
+    # an item nobody could decide (unclear, or no verdict at all) is settled by reading the code, not left to the person
+    for iid, it in known.items():
+        if it.get("auto"):
+            continue
+        j = by_item.get(iid)
+        if not j or j["verdict"] == "unclear":
+            claims.append({"kind": "settle", "target": iid,
+                           "claim": f"{iid} \"{it['text']}\": " + (f"a reviewer could not decide it: {j.get('evidence')}"
+                                                                    if j else "no reviewer gave a verdict for it"),
+                           "files": it.get("files") or []})
+    over = claims[MAX_CHECKS:]
+    claims = claims[:MAX_CHECKS]
+    review["unchecked"] = [c["claim"][:200] for c in over]
+    checks = []
+    for n, c in enumerate(claims, 1):
+        settle = c["kind"] == "settle"
+        checks.append({"id": f"check-{n}", "title": c["claim"][:80], "job": "settle" if settle else "check",
+                       "what": JOB_TEXT["settle" if settle else "check"], "read": read, "claim": c["claim"][:1500],
+                       "kind": c["kind"], "target": c["target"], **({"files": c["files"][:8]} if settle else {}),
+                       "answer": ("CHECK | met | <file:line and why>  or  CHECK | not-met | <file:line and why>  or  "
+                                  "CHECK | unverified | <what you could not read>" if settle else
+                                  "CHECK | confirmed | <why>  or  CHECK | rejected | <why>  or  CHECK | unverified | "
+                                  "<what you could not read>") + ", then TICKET-REVIEW: done"})
+    note = (f"{len(by_item)} item verdict(s), {len(findings)} finding(s) (after merging duplicates), "
+            f"{len(got['quality'])} quality note(s); {len(checks)} claim(s) to check"
+            + (f"; read {cov['read']} of {cov['files']} file(s)" if cov["known"] else "")
+            + (f"; WARNING {warn}" if warn else "")
+            + (f"; {len(got['bad'])} line(s) not understood" if got["bad"] else "") + ".")
+    detail = "\n".join(([f"not read: {f}" for f in cov["unread"][:40]] if cov["known"] else []) + got["bad"][:20])
+    return _result(True, note, detail, {"data": {**a.data, KEY: review, "ticket_checks": checks}})
 
 
 # ------------------------------------------------------------------ ticket_record
@@ -858,7 +1180,8 @@ async def ticket_record(a):
 
 
 def verdict_of(review: dict) -> dict:
-    """Quality notes and lint never change the verdict; a compile error in a changed file always does."""
+    """Quality notes and lint never change the verdict; a compile error in a changed file always does. A review that did
+    not read every file is never "done": it is "partial" (unless it already found the change not done)."""
     items = review.get("items") or []
     findings = review.get("findings") or []
     not_met = sum(1 for it in items if it.get("verdict") == "not-met")
@@ -867,29 +1190,52 @@ def verdict_of(review: dict) -> dict:
     build = (review.get("build") or {}).get("checks") or []
     broken = sum(1 for c in build if c["kind"] == "compile" and not c["ok"] and c["issues"])
     lint = sum(len(c["issues"]) for c in build if c["kind"] == "lint")
-    verdict = "not-done" if not_met or blocking or broken else "unclear" if unclear else "done"
+    verdict = ("not-done" if not_met or blocking or broken else "partial" if review.get("partial")
+               else "unclear" if unclear else "done")
+    unread = len((review.get("coverage") or {}).get("unread") or [])
     return {"verdict": verdict, "counts": {"met": len(items) - not_met - unclear, "not_met": not_met, "unclear": unclear,
                                            "blocking": blocking, "minor": len(findings) - blocking,
-                                           "build_errors": broken, "lint": lint, "quality": len(review.get("quality") or [])}}
+                                           "build_errors": broken, "lint": lint, "quality": len(review.get("quality") or []),
+                                           "unread": unread}}
 
 
 def _record(a):
     review = _review(a)
-    judged = review.get("judged") or {}
+    judged = dict(review.get("judged") or {})
     checks = {c["id"]: c for c in a.data.get("ticket_checks") or []}
-    rejected_findings, unclear_items, confirmed = set(), {}, 0
+    rejected_findings, unverified_findings, unclear_items, confirmed = set(), {}, {}, 0
+    settled: dict[str, dict] = {}
+    answered = set()
     for r in a.data.get("check_results") or []:
         c = checks.get(r.get("item"))
         got = parse_lines(r.get("text") or "")["checks"]
         if not c or not got:
             continue
-        if got[-1]["verdict"] == "confirmed":
+        answered.add(c["id"])
+        v, why = got[-1]["verdict"], got[-1]["why"]
+        if c["kind"] == "settle":
+            # the second look read the code: its met / not-met replaces "nobody could decide"; unverified says why not
+            settled[c["target"]] = {"verdict": v if v in ("met", "not-met") else "unverified", "why": why}
+        elif v == "confirmed":
             confirmed += 1
+        elif v == "unverified":
+            if c["kind"] == "finding":
+                unverified_findings[c["target"]] = why
+            else:
+                unclear_items[c["target"]] = f"a second look could not read what it needs: {why}"
         elif c["kind"] == "finding":
             rejected_findings.add(c["target"])
         else:
-            unclear_items[c["target"]] = got[-1]["why"]
-    review["findings"] = [f for n, f in enumerate(review.get("findings") or []) if n not in rejected_findings]
+            unclear_items[c["target"]] = f"a second look did not confirm it is missing: {why}"
+    for c in checks.values():           # a check job that gave no answer: its claim stays, marked unverified
+        if c["id"] not in answered and c["kind"] == "finding":
+            unverified_findings.setdefault(c["target"], "the second look gave no answer")
+    findings = []
+    for n, f in enumerate(review.get("findings") or []):
+        if n in rejected_findings:
+            continue
+        findings.append({**f, "unverified": unverified_findings[n]} if n in unverified_findings else f)
+    review["findings"] = findings
     missing = []
     items = []
     for it in review.get("items") or []:
@@ -898,30 +1244,43 @@ def _record(a):
             items.append(it)
             continue
         got = judged.get(it["id"])
-        if got:
+        s = settled.get(it["id"])
+        if s and s["verdict"] in ("met", "not-met"):
+            it.update(verdict=s["verdict"], evidence=f"settled by reading the code: {s['why']}",
+                      todo=None if s["verdict"] == "met" else (got or {}).get("todo") or "make the change the evidence names",
+                      auto=False, settled=True)
+        elif s:
+            it.update(verdict="unclear", evidence=f"unverified: the code that decides it could not be read ({s['why']})",
+                      todo="read it yourself, or ask the author", auto=False)
+        elif got:
             it.update(verdict=got["verdict"], evidence=got.get("evidence"), todo=got.get("todo"), auto=False)
             if it["id"] in unclear_items:
-                it.update(verdict="unclear", evidence=f"a second look did not confirm it is missing: {unclear_items[it['id']]}",
-                          todo="check it by hand, or ask the author")
+                it.update(verdict="unclear", evidence=unclear_items[it["id"]], todo="check it by hand, or ask the author")
         elif not it.get("auto"):
             missing.append(it["id"])
-            it.update(verdict="unclear", evidence="no reviewer gave a verdict for it", todo="check it by hand")
+            it.update(verdict="unclear", evidence="no reviewer gave a verdict for it and no second look was run",
+                      todo="check it by hand")
         items.append(it)
     review["items"] = items
     review["missing"] = missing
     review.update(verdict_of(review))
     text = report_text(review)
     c = review["counts"]
+    cov = review.get("coverage") or {}
     note = (f"{_word(review['verdict'])}: {c['met']} of {len(items)} item(s) met, {c['not_met']} not met, {c['unclear']} "
             f"unclear, {c['blocking']} blocking" + (f"; {len(missing)} item(s) had no verdict ({', '.join(missing)}): "
                                                      "marked unclear" if missing else "")
-            + (f"; {len(rejected_findings)} finding(s) dropped by the check" if rejected_findings else "") + ".")
+            + (f"; {len(settled)} item(s) settled by a second look" if settled else "")
+            + (f"; {len(rejected_findings)} finding(s) dropped by the check" if rejected_findings else "")
+            + (f"; PARTIAL: {len(cov.get('unread') or [])} of {cov.get('files')} file(s) not read" if cov.get("unread") and cov.get("known") else "")
+            + (f"; {cov['warning']}" if cov.get("warning") else "") + ".")
     data = {**a.data, KEY: review, "review_text": text, "share_questions": [share_question(review)]}
     return _result(True, note, "", {"show": text, "data": data})
 
 
 def _word(verdict: str | None) -> str:
-    return {"done": "DONE", "not-done": "NOT DONE", "unclear": "NEEDS A CHECK"}.get(str(verdict), str(verdict or "").upper())
+    return {"done": "DONE", "not-done": "NOT DONE", "unclear": "NEEDS A CHECK",
+            "partial": "PARTIAL - not every file was read"}.get(str(verdict), str(verdict or "").upper())
 
 
 def report(review: dict) -> dict:
@@ -938,28 +1297,37 @@ def report(review: dict) -> dict:
     compile_rows = [{"where": at(x), "problem": f"{c['name']}: {x['text']}", "kind": "compile",
                      "todo": "make it build: nothing else can be checked until it does"}
                     for c in checks if c["kind"] == "compile" and not c["ok"] for x in c["issues"]]
-    must_fix = compile_rows + [{"where": at(f), "problem": f["text"], "todo": f.get("todo"), "kind": "bug"}
+    def problem(f):
+        return f["text"] + (f" (unverified: {f['unverified']})" if f.get("unverified") else "") + \
+            (f" (seen by {f['seen']} reviewers)" if (f.get("seen") or 1) > 1 else "")
+    must_fix = compile_rows + [{"where": at(f), "problem": problem(f), "todo": f.get("todo"), "kind": "bug"}
                                for f in findings if f["severity"] == "blocking"]
     check = [{"id": it["id"], "title": it["text"], "problem": it.get("evidence") or "the code does not show it",
               "todo": it.get("todo") or "check it by hand, or ask the author"} for it in items if it.get("verdict") == "unclear"]
-    nice = [{"where": at(f), "problem": f["text"], "todo": f.get("todo"), "kind": "bug"} for f in findings if f["severity"] == "minor"]
+    nice = [{"where": at(f), "problem": problem(f), "todo": f.get("todo"), "kind": "bug"} for f in findings if f["severity"] == "minor"]
     nice += [{"where": at(x), "problem": f"{c['name']}: {x['text']}", "todo": None, "kind": "lint"}
              for c in checks if c["kind"] == "lint" for x in c["issues"]]
     nice += [{"where": at(q), "problem": q["text"], "todo": q.get("todo"), "rule": q.get("rule"), "kind": "quality"}
              for q in review.get("quality") or []]
     done = [{"id": it["id"], "title": it["text"]} for it in items if it.get("verdict") == "met"]
+    cov = review.get("coverage") or {}
+    unread = [{"file": f, "why": (cov.get("gaps") or {}).get(f)} for f in cov.get("unread") or []] if cov.get("known") else []
+    warnings = [w for w in [cov.get("warning")] if w] + \
+        ([f"{len(review['unchecked'])} claim(s) were not given a second look (more than {MAX_CHECKS})"] if review.get("unchecked") else [])
     notes = ([f"build check: {build['note']}"] if build.get("note") else []) + \
         [f"{c['name']}: {c['note']}" for c in checks if c.get("note")]
 
     def step(x, prefix):
         return f"{prefix}{x['where'] + ' - ' if x.get('where') else ''}{x.get('todo') or x['problem']}"
-    nxt = [step(x, "Fix: ") for x in must_fix] + [f"Add: {x['id']} \"{x['title']}\" - {x['todo'] or x['problem']}" for x in missing] \
+    nxt = ([f"Read: {len(unread)} file(s) no reviewer read (listed under NOT READ) before you trust this review"] if unread else []) \
+        + [step(x, "Fix: ") for x in must_fix] + [f"Add: {x['id']} \"{x['title']}\" - {x['todo'] or x['problem']}" for x in missing] \
         + [f"Check: {x['id']} \"{x['title']}\" - {x['todo']}" for x in check]
     if nice:
         nxt.append(f"Optional: the {len(nice)} nice-to-have note(s) above")
     return {"word": _word(review.get("verdict")), "summary": review.get("summary"), "done_count": len(done),
             "total": len(items), "missing": missing, "must_fix": must_fix, "check": check, "nice": nice, "done": done,
-            "notes": notes, "next": nxt}
+            "notes": notes, "next": nxt, "unread": unread, "warnings": warnings,
+            "read": f"{cov.get('read')} of {cov.get('files')}" if cov.get("known") else None}
 
 
 def report_text(review: dict) -> str:
@@ -967,13 +1335,19 @@ def report_text(review: dict) -> str:
     out = [f"{review.get('title')} - {r['word']} · {r['done_count']} of {r['total']} checklist item(s) done"]
     if r["summary"]:
         out.append(r["summary"])
-    out.append(f"Reviewed: {_what(review.get('source') or {})}")
+    out.append(f"Reviewed: {_what(review.get('source') or {})}" + (f" · files read: {r['read']}" if r["read"] else ""))
+    for w in r["warnings"]:
+        out.append(f"WARNING: {w}")
 
     def block(title, rows, fmt):
         if rows:
             out.extend(["", title])
             for x in rows:
                 out.extend(fmt(x))
+    block(f"NOT READ - the review is partial: no reviewer read these ({len(r['unread'])})", r["unread"][:40], lambda x: [
+        f"   {x['file']}" + (f" - {x['why']}" if x.get("why") else "")])
+    if len(r["unread"]) > 40:
+        out.append(f"   … {len(r['unread']) - 40} more")
     block(f"MISSING - from the ticket or the definition of done ({len(r['missing'])})", r["missing"], lambda x: [
         f"   {x['id']} {x['title']}", f"      problem: {x['problem']}" + (" (script)" if x["script"] else "")]
         + ([f"      to do:   {x['todo']}"] if x["todo"] else []))
@@ -1042,6 +1416,7 @@ def comment_text(review: dict, sections: list[str]) -> str:
     out: list[str] = []
     if "summary" in want:
         out += [f"**Review: {r['word'].lower()}** - {r['done_count']} of {r['total']} checklist items done."
+                + (f" Files read: {r['read']}." if r["read"] and r["unread"] else "")
                 + (f" {r['summary']}" if r["summary"] else ""), ""]
 
     def lst(title, rows):

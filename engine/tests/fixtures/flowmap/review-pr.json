@@ -28,7 +28,7 @@
    "markers": [
     "TICKET-REVIEW"
    ],
-   "instructions": "Do only your item's job, against the reviewed version (the item's read commands), never the working tree. The ticket is the text the user gave, after the line that names the PR or branch. Items listed under decided are already judged by a script: skip them. Answer in result lines only."
+   "instructions": "Do only your item's job, against the reviewed version (the item's read commands), never the working tree. The ticket is the text the user gave, after the line that names the PR or branch. Items listed under decided are already judged by a script: skip them. Read the diff of every file in your list and start your answer with one READ line per file read (GAP | file | why for one you could not read). Go through each of your lenses. Answer in result lines only."
   },
   {
    "id": "claims",
@@ -48,7 +48,7 @@
    "markers": [
     "TICKET-REVIEW"
    ],
-   "instructions": "Your item holds one claim another reviewer made. Read only the lines it names in the reviewed version and answer whether it is true: CHECK | confirmed | <why> or CHECK | rejected | <why>."
+   "instructions": "Your item holds one claim another reviewer made (job check), or one checklist item nobody could decide (job settle). Read the code in the reviewed version: the lines it names, and what they call. A check answers CHECK | confirmed | <why> or CHECK | rejected | <why>; a settle answers CHECK | met | <file:line, why> or CHECK | not-met | <file:line, why>. Only when the code that decides it cannot be read: CHECK | unverified | <what you could not read>. Never leave it as a question for the person."
   },
   {
    "id": "record",

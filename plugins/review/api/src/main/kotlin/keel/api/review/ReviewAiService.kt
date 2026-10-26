@@ -87,6 +87,26 @@ class ReviewAiService(
         const val ADDRESS = "address:"
         const val BUTTON = "button:"
         private val BLOCK = Regex("```[ \\t]*(keel-review[a-z-]*)[ \\t]*\\n(.*?)\\n[ \\t]*```", RegexOption.DOT_MATCHES_ALL)
+        private val DOCS = Regex("\\.(md|mdx|txt|rst|adoc)$|(^|/)docs?/|(^|/)(package-lock\\.json|yarn\\.lock|pnpm-lock\\.yaml|composer\\.lock|uv\\.lock|go\\.sum|Cargo\\.lock)$", RegexOption.IGNORE_CASE)
+        /** The lenses each reviewer goes through: the bugs reviews missed most (keel's review-eval benchmark). */
+        val LENSES_A = listOf(
+            "data migration and backfill: defaults and NOT NULL on existing rows, a missing backfill, a new table existing code INNER JOINs to, a unique index the code relies on that the migration does not create (the ORM mapping or test schema may have it)",
+            "concurrency and idempotency: a message delivered twice, overlapping workers or cron runs, check-then-act without a lock, a side effect (an external call, a booking) repeated on redelivery, a status UPDATE whose WHERE does not enforce the allowed transitions",
+            "error handling and retry: one failure that stops a batch (a throw in a loop), a retry without an end or a terminal failed state, a catch-all that only logs",
+        )
+        val LENSES_B = listOf(
+            "secrets and config: every env or config key the code reads against the keys .env, compose and deploy files define (a renamed key breaks the boot), unsafe defaults, test config that hides a prod break",
+            "tests that assert nothing (always-true assertions, a test that only checks a service exists)",
+        )
+
+        /** The changed files a review must read: everything but docs and lockfiles. */
+        fun reviewable(v: ReviewView): List<String> = v.files.filter { !it.binary && it.status != "D" && !DOCS.containsMatchIn(it.path) }.map { it.path }
+
+        /** Which of [want] no reviewer said it read (a path matches exactly or by its end). */
+        fun unread(want: List<String>, read: Collection<String>): List<String> {
+            val r = read.map { it.trim().trim('`').removePrefix("./") }.filter { it.isNotEmpty() }.toSet()
+            return want.filter { f -> f !in r && r.none { x -> x.contains('/') && (f.endsWith("/$x") || x.endsWith("/$f")) } }
+        }
     }
 
     // ---------------------------------------------------------------- reading
@@ -158,7 +178,8 @@ class ReviewAiService(
         val id = "rr_" + UUID.randomUUID().toString().replace("-", "").take(12)
         val now = Time.now()
         jdbc.update("INSERT INTO review_runs(id, project_id, review_key, kind, head_sha, status, sessions, result, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-            id, pid, key, kind, view.headSha, "running", "[]", mapper.writeValueAsString(mapOf("stage" to if (kind == "overview") "overview" else "find")), now, now)
+            id, pid, key, kind, view.headSha, "running", "[]",
+            mapper.writeValueAsString(mapOf("stage" to if (kind == "overview") "overview" else "find", "want" to reviewable(view))), now, now)
         try {
             if (kind == "overview") {
                 launch(pid, id, "overview", "${label(view)} · overview", overviewPrompt(view))
@@ -259,7 +280,16 @@ class ReviewAiService(
             "risk_why" to o.path("risk_why").asText().take(400),
             "split" to o.path("split").asText().take(400),
             "questions" to o.path("questions").map { it.asText().take(300) }.take(8),
-        ))
+        ) + coverageOf(runId, o.path("read").map { it.asText() }))
+    }
+
+    /** What the overview or the reviewers read of the change (their "read" lists): partial when a file was not read. */
+    private fun coverageOf(runId: String, read: List<String>): Map<String, Any?> {
+        val want = run(runId)?.second?.result?.path("want")?.map { it.asText() }.orEmpty()
+        if (want.isEmpty() || read.isEmpty()) return mapOf("coverage" to mapOf("files" to want.size, "read" to null, "known" to false))
+        val missing = unread(want, read)
+        return mapOf("partial" to missing.isNotEmpty(),
+            "coverage" to mapOf("files" to want.size, "read" to want.size - missing.size, "unread" to missing.take(200), "known" to true))
     }
 
     private fun fid(path: String, line: Int?, title: String): String =
@@ -282,7 +312,8 @@ class ReviewAiService(
                 "pre_existing" to f.path("pre_existing").asBoolean(false), "reviewer" to reviewer,
             )
         }
-        val notes = mapOf("security" to b.path("security").asText().take(400), "tests" to b.path("tests").asText().take(400))
+        val notes = mapOf("security" to b.path("security").asText().take(400), "tests" to b.path("tests").asText().take(400),
+            "read" to b.path("read").joinToString("\n") { it.asText() })
         return list to notes
     }
 
@@ -304,7 +335,12 @@ class ReviewAiService(
         val done = sessions.filter { it["status"] == "done" }
         if (done.isEmpty()) return fail(runId, "Neither reviewer finished")
         val parsed = done.map { candidates(it["answer"] as String, if (it["role"] == "find-a") "A" else "B") }
-        val notes = parsed.flatMap { it.second.entries }.groupBy({ it.key }, { it.value }).mapValues { (_, v) -> v.filter { it.isNotBlank() }.joinToString(" ") }
+        val read = parsed.flatMap { (it.second["read"] ?: "").lines() }.filter { it.isNotBlank() }
+        // keel 0.18.57: a run where no reviewer read the change is not a review with no findings: it stops, said so
+        if (read.isEmpty() && parsed.all { it.first.isEmpty() }) {
+            return fail(runId, "No reviewer read the change (neither listed a file it read, and neither found anything): keel does not report it as reviewed. Ask again, or review a smaller part.")
+        }
+        val notes = parsed.flatMap { (it.second - "read").entries }.groupBy({ it.key }, { it.value }).mapValues { (_, v) -> v.filter { it.isNotBlank() }.joinToString(" ") }
         val merged = merge(parsed.flatMap { it.first })
         val pre = merged.filter { it["pre_existing"] == true }
         val main = merged.filter { it["pre_existing"] != true }
@@ -314,8 +350,8 @@ class ReviewAiService(
         val result = mutableMapOf<String, Any?>(
             "stage" to "verify", "candidates" to toCheck, "nits" to nits.take(MAX_NITS), "more_nits" to (nits.size - MAX_NITS).coerceAtLeast(0),
             "pre_existing" to pre.take(10), "unchecked" to unchecked, "security" to notes["security"], "tests" to notes["tests"],
-            "reviewers" to done.size,
-        )
+            "reviewers" to done.size, "want" to (run(runId)?.second?.result?.path("want")?.map { it.asText() }.orEmpty()),
+        ) + coverageOf(runId, read)
         if (toCheck.isEmpty()) return done(runId, finalFindings(result, emptyMap()))
         jdbc.update("UPDATE review_runs SET result = ?, updated_at = ? WHERE id = ?", mapper.writeValueAsString(result), Time.now(), runId)
         val view = reviews.view(pid, key)
@@ -331,7 +367,7 @@ class ReviewAiService(
             block(s["answer"] as String, "keel-review-verify")?.path("verdicts")?.forEach { v ->
                 val id = v.path("id").asText()
                 val verdict = v.path("verdict").asText().lowercase()
-                if (verdict in setOf("confirmed", "rejected")) verdicts[id] = verdict to v.path("why").asText().take(600)
+                if (verdict in setOf("confirmed", "rejected", "unverified")) verdicts[id] = verdict to v.path("why").asText().take(600)
             }
         }
         @Suppress("UNCHECKED_CAST")
@@ -339,7 +375,8 @@ class ReviewAiService(
         done(runId, finalFindings(result, verdicts))
     }
 
-    /** confirmed → findings; rejected → kept with the reason; not answered → "not checked" (shown, marked). */
+    /** confirmed → findings; unverified → findings, marked with what could not be read; rejected → kept with the
+     *  reason; not answered → "not checked" (shown, marked). */
     private fun finalFindings(r: Map<String, Any?>, verdicts: Map<String, Pair<String, String>>): Map<String, Any?> {
         @Suppress("UNCHECKED_CAST")
         val cands = (r["candidates"] as? List<Map<String, Any?>>).orEmpty()
@@ -348,8 +385,11 @@ class ReviewAiService(
         for (c in cands) {
             when (val v = verdicts[c["id"]]) {
                 null -> confirmed += c + mapOf("check" to "not checked")
-                else -> if (v.first == "confirmed") confirmed += c + mapOf("check" to "confirmed", "check_why" to v.second)
-                    else rejected += c + mapOf("check" to "rejected", "check_why" to v.second)
+                else -> when (v.first) {
+                    "confirmed" -> confirmed += c + mapOf("check" to "confirmed", "check_why" to v.second)
+                    "unverified" -> confirmed += c + mapOf("check" to "unverified", "check_why" to v.second)
+                    else -> rejected += c + mapOf("check" to "rejected", "check_why" to v.second)
+                }
             }
         }
         @Suppress("UNCHECKED_CAST")
@@ -380,10 +420,13 @@ class ReviewAiService(
         |You help a person review a change. Do not change any file and do not run builds or tests: read only.
         |
         |${scope(v)}
-        |Explain the change so it is easy to review. Read the diff of the files that matter.
+        |Explain the change so it is easy to review. Read the diff of the files that matter, and always the migrations,
+        |.env, compose, deploy and config files. Describe only what you read: list it in "read". A file you did not read
+        |is described as "not read", and the summary never claims what you did not read.
         |End your answer with exactly one fenced block named keel-review-overview with this JSON:
         |```keel-review-overview
         |{"summary": "2-3 plain sentences: what it does and why",
+        | "read": ["every changed file whose diff you read"],
         | "files": [{"path": "a changed file", "what": "one line: what changed in it"}],
         | "order": ["the files to read first, most logic first, at most 6"],
         | "diagram": "a small ASCII diagram of the flow it changes when it crosses parts of the code, else empty",
@@ -396,6 +439,7 @@ class ReviewAiService(
     private fun findPrompt(v: ReviewView, who: String): String {
         val focus = if (who == "A") "correctness (logic errors, edge cases, null and error handling, concurrency, data loss) and security (auth, input, data exposure, secrets, injection)"
             else "tests (would they fail if the code broke? is new behaviour tested?), the ticket or description (does the change do what it says, anything out of scope?) and design (fits the code around it, simpler way, performance)"
+        val lenses = if (who == "A") LENSES_A else LENSES_B
         return """
             |You are reviewer $who of a change. Do not change any file and do not run builds or tests: read only.
             |Your focus: $focus.
@@ -408,9 +452,14 @@ class ReviewAiService(
             |- severity: blocking (must be fixed before merge), should_fix, nit (at most 3 nits).
             |- suggestion: the replacement code for the line(s) only when the fix is small and local, else empty; fix: the fix in words.
             |- When there is nothing to report, return an empty list. That is a good answer.
+            |- Read the diff of every changed code, migration, config and .env file (several files per git diff call), and
+            |  list each one you read in "read". Never skip a migration, .env, compose, deploy or config file, even a
+            |  one-line change. A file you did not read is not in "read": keel marks the review partial and names it.
+            |- Go through each lens: ${lenses.joinToString("; ")}.
             |End your answer with exactly one fenced block named keel-review-findings with this JSON:
             |```keel-review-findings
-            |{"findings": [{"title": "short", "severity": "blocking|should_fix|nit", "category": "correctness|security|tests|ticket|performance|design",
+            |{"read": ["every changed file whose diff you read"],
+            | "findings": [{"title": "short", "severity": "blocking|should_fix|nit", "category": "correctness|security|tests|ticket|performance|design",
             |  "path": "file", "line": 12, "side": "RIGHT", "why": "why it matters, with evidence", "suggestion": "", "fix": "", "pre_existing": false}],
             | "security": "one line: what you checked for security (reviewer A) or empty",
             | "tests": "one line: are the tests enough (reviewer B) or empty"}
@@ -430,11 +479,14 @@ class ReviewAiService(
             |Claims:
             |$claims
             |
-            |For each claim: confirmed only when the code at the head commit shows the problem (quote the line), rejected
-            |when the code handles it or the claim is wrong. Say why in one or two sentences.
+            |For each claim, read the code at the head commit (the lines it names and what they call; git grep for the
+            |rest): confirmed only when the code shows the problem (quote the line), rejected when the code handles it or
+            |the claim is wrong. Never leave a question open: when the code that decides it cannot be read (generated,
+            |outside the repo), the verdict is unverified and "why" says what could not be read. Say why in one or two
+            |sentences.
             |End your answer with exactly one fenced block named keel-review-verify with this JSON:
             |```keel-review-verify
-            |{"verdicts": [{"id": "the claim's id", "verdict": "confirmed|rejected", "why": "the evidence"}]}
+            |{"verdicts": [{"id": "the claim's id", "verdict": "confirmed|rejected|unverified", "why": "the evidence"}]}
             |```
         """.trimMargin()
     }

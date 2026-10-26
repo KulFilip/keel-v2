@@ -19,6 +19,7 @@ BUILTIN_ROLES = {
                        "design documents, production code or tests. If nothing outside changes, say so and stop.",
 }
 
+ITEM_MAX = 6_000           # a fan-out item's JSON in the prompt; a longer one is cut, with a marker the agent must report
 GENERIC_ROLE = "You are a careful software engineer working inside a keel flow. Do the step you are given and nothing else."
 
 
@@ -234,7 +235,12 @@ def task_prompt(*, agent: str, phase: str, step_name: str, title: str, root: str
         shown = {k: v for k, v in item.items() if k not in ("status", "whole")}
         head = ("Your work (all of it is yours, no other agent shares it):\n" if item.get("whole")
                 else "Your item (work on this one only; other agents have the others):\n")
-        lines.append(head + json.dumps(shown, indent=2, ensure_ascii=False, default=str)[:6000])
+        text = json.dumps(shown, indent=2, ensure_ascii=False, default=str)
+        if len(text) > ITEM_MAX:
+            # never silently: an agent that got half its item says what it could not see (keel <= 0.18.56 cut it unmarked)
+            text = (text[:ITEM_MAX] + f"\n… [CUT: this item is {len(text)} characters and you got the first {ITEM_MAX}. "
+                    "Do the part you got, and name what was cut off in your answer.]")
+        lines.append(head + text)
     if index and not section and not item:
         lines.append(f"You are copy {index + 1} of a parallel step; take a different angle from the others.")
     if feedback and feedback.startswith("Answers to your questions:"):

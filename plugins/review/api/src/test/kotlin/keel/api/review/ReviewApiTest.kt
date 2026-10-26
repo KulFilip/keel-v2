@@ -460,6 +460,39 @@ class ReviewApiTest : ApiTest() {
         assertThat(get("/api/projects/$pid/review/ai?key=pr:7").json()["decisions"].size()).isZero()
     }
 
+    @Test
+    fun `a findings run says what it did not read, keeps what it could not verify, and stops when nothing was read`() {
+        val (pid, _) = githubPr()
+        view(pid, "pr:7")
+        val s1 = post("/api/projects/$pid/review/ai/findings", mapOf("key" to "pr:7")).andExpect(status().isOk).json()
+        val (a, b) = s1["findings"]["sessions"].map { it["sid"].asText() }
+        // the lenses and the read list are asked for (keel 0.18.57)
+        assertThat(turnText(a)).contains("data migration and backfill").contains("idempotency").contains("\"read\"")
+        assertThat(turnText(b)).contains("secrets and config").contains("Never skip a migration, .env")
+        finish(pid, a, "```keel-review-findings\n{\"read\": [\"src/Prefs.kt\"], \"findings\": [{\"title\": \"page size is never saved\", \"severity\": \"blocking\"," +
+            " \"category\": \"correctness\", \"path\": \"src/Prefs.kt\", \"line\": 4, \"why\": \"cache only\"}]}\n```")
+        finish(pid, b, "```keel-review-findings\n{\"read\": [], \"findings\": []}\n```")
+        val mid = get("/api/projects/$pid/review/ai?key=pr:7").json()["findings"]
+        val vsid = mid["sessions"].first { it["role"].asText() == "verify-1" }["sid"].asText()
+        assertThat(turnText(vsid)).contains("confirmed|rejected|unverified").contains("Never leave a question open")
+        val claim = Regex("- id (f_[0-9a-f]+):").find(turnText(vsid))!!.groupValues[1]
+        finish(pid, vsid, "```keel-review-verify\n{\"verdicts\": [{\"id\": \"$claim\", \"verdict\": \"unverified\", \"why\": \"the cache class is generated\"}]}\n```")
+        val f = get("/api/projects/$pid/review/ai?key=pr:7").json()["findings"]
+        assertThat(f["status"].asText()).isEqualTo("done")
+        assertThat(f["result"]["findings"].single()["check"].asText()).isEqualTo("unverified")      // kept, and marked
+        assertThat(f["result"]["partial"].asBoolean()).isTrue()
+        assertThat(f["result"]["coverage"]["unread"].map { it.asText() }).contains("src/PrefsTest.kt").doesNotContain("src/Prefs.kt")
+
+        // neither reviewer read anything and neither found anything: not "no findings", a failed run that says why
+        val s2 = post("/api/projects/$pid/review/ai/findings", mapOf("key" to "pr:7")).andExpect(status().isOk).json()
+        val (a2, b2) = s2["findings"]["sessions"].map { it["sid"].asText() }
+        finish(pid, a2, "Based on the file list only.\n```keel-review-findings\n{\"read\": [], \"findings\": []}\n```")
+        finish(pid, b2, "```keel-review-findings\n{\"findings\": []}\n```")
+        val f2 = get("/api/projects/$pid/review/ai?key=pr:7").json()["findings"]
+        assertThat(f2["status"].asText()).isEqualTo("failed")
+        assertThat(f2["error"].asText()).contains("No reviewer read the change")
+    }
+
     // ---------------------------------------------------------------- the review threads: is the reviewer right? and Address it
 
     private fun threadId(pid: String): String = view(pid, "pr:7")["threads"].first { it["comments"][0]["author"].asText() == "bo" }["id"].asText()
