@@ -14,7 +14,8 @@ import org.springframework.web.bind.annotation.RestController
 @RestController
 @RequestMapping("/api/projects/{pid}/review")
 class ReviewController(private val reviews: ReviewService, private val ai: ReviewAiService, private val addressing: ReviewAddressService,
-                       private val judging: ReviewJudgeService, private val threadSettings: ReviewThreadSettings) {
+                       private val judging: ReviewJudgeService, private val threadSettings: ReviewThreadSettings,
+                       private val diagrams: ReviewDiagramsService) {
 
     @GetMapping("/prs")
     fun prs(@PathVariable pid: String, @RequestParam(defaultValue = "review") filter: String) = reviews.prs(pid, filter)
@@ -75,6 +76,11 @@ class ReviewController(private val reviews: ReviewService, private val ai: Revie
 
     @PostMapping("/checkout")
     fun checkout(@PathVariable pid: String, @RequestBody b: KeyBody) = reviews.checkout(pid, b.key)
+
+    /** The overview's Database and System diagrams (Mermaid, ASCII and their data), read from git, kept per head commit. */
+    @GetMapping("/diagrams")
+    fun diagrams(@PathVariable pid: String, @RequestParam key: String, @RequestParam(defaultValue = "false") refresh: Boolean) =
+        diagrams.diagrams(pid, key, refresh)
 
     // ---- keel's AI on a review
 

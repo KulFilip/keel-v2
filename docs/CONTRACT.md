@@ -1909,8 +1909,22 @@ POST /api/projects/{pid}/review/checkout {key}             → { branch, note } 
 GET  /api/projects/{pid}/review/ai?key                      → { overview, findings, decisions }
 POST /api/projects/{pid}/review/ai/overview|findings {key}  → starts read-only KeelBot runs (overview; reviewers A ∥ B, then checks)
 POST /api/projects/{pid}/review/ai/findings/{id} {key, decision: dismissed|commented|open, why}
+GET  /api/projects/{pid}/review/diagrams?key[&refresh=true] → { key, base, head, text, database, system }   the overview's
+                                                              Database and System tabs, read from git (no model), kept
+                                                              per head commit
 GET|PUT|DELETE /api/gitlab {url, token?}                   → { set, url, host, hint }   (the token never leaves keel)
 ```
+
+- The overview's diagrams (0.18.57): `database` = `{ shown, count, before, after, notes, tables: [{name, status:
+  new|changed|removed|related, renamed_from?, columns: [{name, type, pk, fk, unique, nullable, default, status, was,
+  cite}], indexes, fks}], changes, migrations: [{path, framework, status, role, parsed, steps: [{line, text}]}],
+  risks: [{kind, severity, text, path, line, uses?}], not_parsed: [{path, line, why}], mermaid, ascii }` (`shown` false
+  when no changed file holds the database); `system` = `{ source: map|paths, nodes, edges, groups, externals,
+  collapsed, tests, mermaid, ascii }`; `text` = both in ASCII (keel TUI's `d` key in the review mode). Migrations are
+  read for SQL (Flyway, Liquibase SQL, plain), Doctrine (`addSql`), Laravel (Schema builder), Alembic (`op.*`), Django,
+  Rails, TypeORM / Knex SQL strings, Liquibase XML / YAML and schema.prisma; ORM entity classes and statements keel
+  cannot read are listed in `not_parsed`, never skipped. "Before" is the Database plugin's live schema (read only)
+  when the project has a connection and it does not already hold the change, else the base commit's migrations.
 
 - Submit sends one review: comments on lines of the diff as line comments, any other as part of the review's text.
   GitHub: one review; GitLab: one discussion per line comment, a note, then approve (Request changes is a note and takes

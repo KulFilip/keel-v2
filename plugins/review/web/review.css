@@ -277,3 +277,37 @@
 .rv-tcard.inline .rv-tacts { padding: 8px 12px; }
 .rv-tcard.inline .rv-check-box { margin-left: 0; }
 .rv-tcard-hi { padding: 6px 12px; gap: 6px; }
+
+/* keel 0.18.57 the overview's Database and System tabs: a diagram (Mermaid as SVG, zoom, scroll inside its box, full
+   screen), its text (ASCII) and a list (the phone's view); + new green, ~ changed amber, − removed red, related faded */
+.rv-subtabs { padding: 0 0 6px; }
+.rv-subtabs .rv-n { margin-left: 5px; }
+.rv-dgm { display: grid; gap: 6px; min-width: 0; }
+.rv-dgm-bar { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+.rv-dgm-sp { flex: 1; }
+.rv-seg { display: inline-flex; border: 1px solid var(--ide-line); border-radius: 6px; overflow: hidden; }
+.rv-seg button { border: 0; background: none; color: var(--dim); font: 500 12px var(--f-body); padding: 3px 8px; cursor: pointer; }
+.rv-seg button.on { background: var(--ide-sel); color: var(--fg); }
+.rv-seg button:focus-visible, .rv-dgm-box:focus-visible, .rv-dgm-text:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.rv-dgm-box { overflow: auto; max-height: 60vh; border: 1px solid var(--ide-line); border-radius: 6px; background: var(--ide-bg); padding: 8px; overscroll-behavior: contain; }
+.rv-dgm-svg svg { display: block; margin: 0 auto; }
+.rv-dgm-text { max-height: 60vh; overflow: auto; }
+.rv-dgm-list { max-height: 60vh; overflow: auto; }
+.rv-dgm.full { position: fixed; inset: 16px; z-index: 60; background: var(--bg, var(--ide-bg)); border: 1px solid var(--ide-line); border-radius: 10px; padding: 10px; box-shadow: 0 10px 40px #0006; grid-template-rows: auto 1fr; }
+.rv-dgm.full .rv-dgm-box, .rv-dgm.full .rv-dgm-text, .rv-dgm.full .rv-dgm-list { max-height: none; min-height: 0; }
+.rv-legend { font-size: 11.5px; }
+.rv-st-new, .rv-st-added { color: var(--ok); }
+.rv-st-changed { color: var(--warn, #d9922e); }
+.rv-st-removed { color: var(--bad); text-decoration: line-through; text-decoration-thickness: 1px; }
+.rv-st-related { opacity: .6; }
+.rv-tlist > li { margin-bottom: 4px; }
+.rv-risks li, .rv-migs > li { line-height: 1.45; }
+@media (max-width: 560px) {
+  .rv-dgm-bar .btn { padding-inline: 6px; }
+  .rv-dgm.full { inset: 0; border-radius: 0; }
+}
+.rv-risks, .rv-migs { list-style: none; padding-left: 0; gap: 6px; }
+.rv-risks > li { border-left: 2px solid var(--ide-line); padding: 2px 0 2px 8px; }
+.rv-migs > li > .rv-list { margin-top: 2px; }
+.rv-stack > *, .rv-dgm > * { min-width: 0; }
+.rv-tlist, .rv-risks, .rv-migs, .rv-dgm-list { overflow-wrap: anywhere; }

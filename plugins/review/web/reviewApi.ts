@@ -314,6 +314,88 @@ export type ThreadSettingsView = {
   models: { role: string; model: { provider: string; mode: string; model: string } }[];
   limits: { buttons: number; label: number; min_cap: number; max_cap: number; placeholders: string[] };
 };
+/** keel 0.18.57 the overview's diagrams (GET /review/diagrams): read from git, no model; kept per head commit. */
+export type Cite = { path: string; line: number } | null;
+export type DbColumn = {
+  name: string;
+  type: string;
+  pk: boolean;
+  fk: string | null;
+  unique: boolean;
+  nullable: boolean | null;
+  default: string | null;
+  status: "new" | "changed" | "removed" | "same";
+  was: string | null;
+  cite?: Cite;
+};
+export type DbTable = {
+  name: string;
+  status: "new" | "changed" | "removed" | "related";
+  renamed_from?: string;
+  cite?: Cite;
+  columns: DbColumn[];
+  indexes: { name: string; columns: string[]; unique: boolean; status: string }[];
+  fks: { name: string | null; columns: string[]; ref_table: string | null; ref_columns: string[]; on_delete: string | null; status: string }[];
+};
+export type DbRisk = {
+  kind: string;
+  severity: "high" | "medium" | "low";
+  text: string;
+  path: string;
+  line: number;
+  uses?: { path: string; line: number }[];
+};
+export type DbMigration = {
+  path: string;
+  framework: string;
+  status: string;
+  role: string;
+  parsed: boolean;
+  partly?: boolean;
+  steps: { line: number; text: string; kind: string; table: string | null }[];
+};
+export type DatabaseDiagram = {
+  shown: boolean;
+  count: number;
+  before?: string;
+  after?: string;
+  notes?: string[];
+  tables?: DbTable[];
+  changes?: { new: number; changed: number; removed: number };
+  migrations?: DbMigration[];
+  risks?: DbRisk[];
+  not_parsed?: { path: string; line: number; why: string }[];
+  mermaid?: string;
+  ascii?: string;
+};
+export type SysNode = {
+  id: string;
+  label: string;
+  layer: string;
+  area: string;
+  files: string[];
+  status: "added" | "changed" | "removed";
+};
+export type SystemDiagram = {
+  source: "map" | "paths";
+  nodes: SysNode[];
+  edges: { from: string; to: string; label: string; kind: "code" | "guess" | "data" }[];
+  groups: { id: string; title: string; nodes: string[] }[];
+  externals: { id: string; label: string; kind: string; detail: string; files: string[] }[];
+  collapsed: { id: string; label: string; names: string[] } | null;
+  tests: number;
+  skipped: number;
+  mermaid: string;
+  ascii: string;
+};
+export type Diagrams = {
+  key: string;
+  base: string;
+  head: string;
+  text: string;
+  database: DatabaseDiagram;
+  system: SystemDiagram;
+};
 export type GitLabView = {
   set: boolean;
   url: string | null;
@@ -380,6 +462,8 @@ export const reviewApi = {
   checkout: (pid: string, key: string) =>
     post<{ branch: string; note: string }>(`${R(pid)}/checkout`, { key }),
   ai: (pid: string, key: string) => get<AiState>(`${R(pid)}/ai?${qk(key)}`),
+  diagrams: (pid: string, key: string, refresh = false) =>
+    get<Diagrams>(`${R(pid)}/diagrams?${qk(key)}${refresh ? "&refresh=true" : ""}`),
   aiStart: (pid: string, key: string, kind: "overview" | "findings") =>
     post<AiState>(`${R(pid)}/ai/${kind}`, { key }),
   decide: (

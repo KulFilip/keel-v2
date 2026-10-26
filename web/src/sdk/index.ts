@@ -146,6 +146,10 @@ export { fileHref } from "../components/er/Structure";
 export type { Pt } from "../components/er/layout";
 export { elbow, endMark, pathD } from "../components/er/route";
 export type { Rect } from "../components/er/route";
+// keel 0.18.57 Mermaid text drawn as SVG (its own chunk, loaded on first use; the Code Review overview's Database and
+// System tabs), the page's light or dark, and keel's one way to copy text
+export { pageIsDark, renderMermaid } from "../components/mermaid";
+export { copyText } from "../clipboard";
 
 // extension points (step 2, docs/plugins/09-step2-contract.md §5): pages for the menu and the router, and slots — named
 // places in keel's pages where a part puts a piece (live: a page renders again when a piece registers)
