@@ -6,7 +6,10 @@ version: 1
 # and code quality. A large change gets one bug reviewer per area (migrations, deploy+config, message pipeline,
 # persistence, api, tests …) with the lenses its files need; claims merges and dedupes their findings, compares what
 # each read with what it was given (a review that read only part of the change is "partial" and names the unread files,
-# one that read nothing stops), and sends every not-met item, blocking finding and undecided item to a second look. Read-only: nothing is fixed, committed or pushed, and nothing reaches the author unless you choose
+# one that read nothing stops), sends every finding and not-met item to the finding-verifier (in batches; a finding
+# and an item about the same problem share one check) and every undecided item to a second look that reads the code.
+# Only confirmed findings are reported as findings; unproven or unanswered ones are listed as NOT CHECKED.
+# Read-only: nothing is fixed, committed or pushed, and nothing reaches the author unless you choose
 # which sections to share and then choose post. Inputs: the request's first line names the PR (a number, #12, PR 12, its
 # URL) or `branch: <name>`, the rest is the ticket; or StartThread.data (the api's options): pr, branch, base, ticket,
 # force (review a draft, closed or docs-only change anyway). The team's checklist is .keel/dod.md (keel's starter list
@@ -33,17 +36,30 @@ steps:
   - id: check
     kind: parallel
     name: check each problem again
-    agent: pr-reviewer
+    agent: finding-verifier
     model: default
     from: ticket_checks
     phase: review
     markers: [TICKET-REVIEW]
     instructions: >-
-      Your item holds one claim another reviewer made (job check), or one checklist item nobody could decide (job
-      settle). Read the code in the reviewed version: the lines it names, and what they call. A check answers
-      CHECK | confirmed | <why> or CHECK | rejected | <why>; a settle answers CHECK | met | <file:line, why> or
-      CHECK | not-met | <file:line, why>. Only when the code that decides it cannot be read: CHECK | unverified | <what
-      you could not read>. Never leave it as a question for the person.
+      Your item holds a few claims other reviewers made (findings and not-met checklist items; one claim may stand for
+      both). For each, restate it as trigger -> effect, then read the reviewed version: the lines it names and the one
+      place that would make it false (a caller, the migration, the config reader, the consumer). Answer one line per
+      claim: CHECK | <id> | confirmed, rejected or unproven | why | sev: | conf: | evidence: | needs:. unproven is kept
+      and shown as not checked; never guess confirmed.
+  - id: settle
+    kind: parallel
+    name: settle what nobody decided
+    agent: pr-reviewer
+    model: default
+    from: ticket_settles
+    phase: review
+    markers: [TICKET-REVIEW]
+    instructions: >-
+      Your item holds one checklist item nobody could decide (job settle). Read the code it needs in the reviewed
+      version and answer CHECK | met | <file:line, why> or CHECK | not-met | <file:line, why>. Only when the code that
+      decides it cannot be read: CHECK | unverified | <what you could not read>. Never leave it as a question for the
+      person.
   - { id: record, kind: code, name: record the review, action: ticket_record, phase: review }
   - { id: share, kind: gate, name: the review, phase: review, choices: { done: end, share: share_text } }
   - { id: share_text, kind: code, name: the text for the author, action: ticket_share, phase: review }

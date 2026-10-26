@@ -522,6 +522,23 @@ const FINDINGS: AiState = {
         },
       ],
       rejected: [],
+      not_checked: [
+        {
+          id: "f_2",
+          title: "callers may pass null",
+          severity: "should_fix",
+          category: "correctness",
+          path: "src/Prefs.kt",
+          line: 2,
+          side: "RIGHT",
+          why: "I could not check the callers",
+          fix: "",
+          pre_existing: false,
+          reviewer: "A",
+          check: "not checked",
+          check_why: "its reviewer could not see the code it is about",
+        },
+      ],
       nits: [],
       pre_existing: [],
     },
@@ -897,6 +914,10 @@ describe("Code › Review, IDE style", () => {
     await userEvent.click(within(side).getByRole("tab", { name: /Findings/ }));
     expect(
       within(side).getByText("1 blocking · 0 should fix"),
+    ).toBeInTheDocument();
+    // keel 0.18.57: what nobody could prove is listed apart, never as a finding
+    expect(
+      within(side).getByText(/Not checked: nobody could prove or disprove/),
     ).toBeInTheDocument();
 
     await userEvent.click(within(side).getByRole("tab", { name: /Changes/ }));

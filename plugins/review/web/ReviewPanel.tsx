@@ -586,6 +586,12 @@ export function FindingsTab({
             r.pre_existing,
             { muted: true, actions: false },
           )}
+          {group(
+            "not_checked",
+            "Not checked: nobody could prove or disprove these (they do not count)",
+            r.not_checked,
+            { muted: true, actions: false },
+          )}
           {group("rejected", "Rejected by the check", r.rejected, {
             muted: true,
             actions: false,

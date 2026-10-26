@@ -321,6 +321,12 @@ def _canned(req: AgentRequest) -> tuple[str | None, str, str, dict]:
                           "| search: example webhook eta | 3 hits |\n| https://docs.example.com/webhooks | found |\n\n"
                           "Unconfirmed: whether it can be null; a sample payload from the sandbox would settle it.\n"
                           "CONFIDENCE: medium"), {}
+    if agent == "finding-verifier":
+        # review-pr's check step: every claim of its batch confirmed, as the reviewer rated it
+        claims = (req.item or {}).get("claims") or []
+        lines = [f"CHECK | {c['id']} | confirmed | the lines show it | sev:{c.get('severity') or 'minor'} | conf:high"
+                 for c in claims]
+        return None, "", "\n".join(lines + ["TICKET-REVIEW: done"]), {}
     if agent == "pr-reviewer":
         # review-pr: result lines for its job (every item met, one minor finding, one quality note), or a confirmed check
         item = req.item or {}

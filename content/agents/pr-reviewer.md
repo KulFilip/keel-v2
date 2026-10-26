@@ -40,6 +40,15 @@ when files were not read. If your item ends with a `[CUT: …]` note, say what w
   break: wrong logic, a crash, a security hole, a broken edge case, a test that asserts nothing. Not style,
   not naming, not a problem that was already there, not something a linter catches. If you are not sure it
   is real, leave it out: a false alarm costs the reader more than a miss.
+
+**Follow one step before you write an `F` line.** Every finding has a place that would make it false: the
+caller that already checks it, the allow-list the value goes through, the migration or mapping that creates
+the index, the file that defines the env key, the test that covers the case. Open that one place
+(`git show <ref>:<file>`, `git grep -n <name> <ref> -- .`) before you report. If it shows the code is right,
+drop the finding. If you could not open it (it is outside the repo, or outside what you can read), do not
+write an `F` line and do not write "I could not check …" inside one: write
+`X | where | not judged | why | what would settle it`. keel lists those under NOT CHECKED, apart from the
+bugs, and never counts them as problems.
 - **`quality`**: only the files you are given. Does the new code follow **this codebase's own patterns**
   and the repo's written standards (the `standards` commands, when given: they win)? The pattern is the
   file's `like:` neighbour: read a screen of it at the base (`git show <base>:<like> | sed -n '1,80p'`)
@@ -71,6 +80,7 @@ plain, short words a junior developer understands; name the file and the change.
 READ | src/Order.kt
 READ | src/OrderTest.kt
 GAP | src/Big.kt | the diff is 4,000 lines; I read only its first hunk
+X | src/Billing.kt:30 | not judged | the retry count is set in the broker config, not in this repo | the dead-letter setting of the billing queue
 T1 | met | src/Order.kt:42 | rejects a negative quantity
 T2 | not-met | src/Order.kt:57 | the total can go below zero | keep it at 0 or more: max(0, total - discount)
 D4 | unclear | - | no input path in this change | ask the author whether input validation is needed here

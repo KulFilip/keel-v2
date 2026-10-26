@@ -64,7 +64,8 @@ def test_the_template_is_valid_read_only_and_ends_without_posting_by_default():
     share, post = t.step("share"), t.step("post")
     assert list(share.choices) == ["done", "share"] and share.choices["done"] == "end"
     assert list(post.choices) == ["keep", "post"] and post.choices["keep"] == "end"   # a plain approve posts nothing
-    assert {t.step("reviewers").agent, t.step("check").agent} == {"pr-reviewer"}
+    assert (t.step("reviewers").agent, t.step("check").agent, t.step("settle").agent) == \
+        ("pr-reviewer", "finding-verifier", "pr-reviewer")
 
 
 # ------------------------------------------------------------------ input and checklist
@@ -177,37 +178,57 @@ def test_a_full_review_of_a_branch_shares_only_the_chosen_sections_and_posts_not
     assert s["status"] == "done" and calls == []
 
 
-def test_problems_are_checked_again_and_the_verdict_follows_the_checks(client, repo, monkeypatch):
+def test_every_problem_is_checked_again_and_only_confirmed_ones_are_reported(client, repo, monkeypatch):
     on_branch(repo, files={"src/scores/ranks.py": "def rank(xs):\n    return sorted(xs, reverse=True)  # TODO: ties\n"})
 
     def reviewer(req):
-        if req.item["job"] == "check":
-            verdict = "rejected" if "blocking bug" in req.item["claim"] else "confirmed"
-            return f"CHECK | {verdict} | read the lines\nTICKET-REVIEW: done"
         if req.item["job"] == "settle":     # the item nobody judged: the second look cannot read what decides it
             return "CHECK | unverified | the config it needs is not in the repo\nTICKET-REVIEW: done"
         ids = [i["id"] for i in req.item["items"]]
-        lines = [f"{i} | met | src/scores/ranks.py:1 | fine" for i in ids if i not in ("T2", "D1")]
-        lines += ["T2 | not-met | src/scores/ranks.py:2 | sorted() with reverse keeps ties but the test is missing | add a test",
+        lines = ["READ | src/scores/ranks.py"] + [f"{i} | met | src/scores/ranks.py:1 | fine" for i in ids if i not in ("T2", "D1")]
+        lines += ["T2 | not-met | src/scores/ranks.py:2 | the reverse sort reorders ties | keep the input order",
                   "F | blocking | src/scores/ranks.py:2 | reverse sort breaks ties | use a stable key",
-                  "F | minor | src/scores/ranks.py:1 | no docstring | add one", "S | Ranks players.", "TICKET-REVIEW: done"]
+                  "F | minor | src/scores/ranks.py:1 | no docstring on rank | add one",
+                  "F | minor | src/scores/ranks.py:1 | the input list is changed in place | copy it first",
+                  "F | minor | src/scores/api.py:9 | I could not check whether callers pass None | ask",
+                  "X | src/scores/limits.py | not judged | the limit comes from a deploy value | the deploy file",
+                  "S | Ranks players.", "TICKET-REVIEW: done"]
         return "\n".join(lines)
-    seen = answers(monkeypatch, {"pr-reviewer": reviewer})
+
+    def verifier(req):
+        out = []
+        for c in req.item["claims"]:
+            v = ("confirmed | ranks.py:2 sorts with reverse=True | sev:blocking" if "T2" in c["claim"]
+                 else "rejected | sorted() returns a new list" if "in place" in c["claim"]
+                 else "unproven | needs:the docs rule of this repo")
+            out.append(f"CHECK | {c['id']} | {v}")
+        return "\n".join(out + ["TICKET-REVIEW: done"])
+    seen = answers(monkeypatch, {"pr-reviewer": reviewer, "finding-verifier": verifier})
     tid = review(client, repo)
     s = wait(client, tid)
-    checks = [r.item for r in seen if r.item and r.item.get("job") == "check"]
-    assert sorted(c["kind"] for c in checks) == ["finding", "item"]
+    checks = [r.item for r in seen if r.agent == "finding-verifier"]
+    claims = [c for job in checks for c in job["claims"]]
+    # every finding is checked (keel 0.18.56: only the blocking one), the item and the finding about the same problem
+    # share one claim, and the one its writer could not check is not a claim at all
+    assert len(claims) == 3 and len(checks) == 1
+    assert sum(1 for c in claims if c["claim"].startswith("T2")) == 1
+    assert not any("callers pass None" in c["claim"] for c in claims)
     settles = [r.item for r in seen if r.item and r.item.get("job") == "settle"]
     assert [c["target"] for c in settles] == ["D1"]                      # nobody judged D1: a second look reads the code
     detail = s["waiting"]["detail"]
-    assert "NOT DONE" in detail and "MISSING" in detail and "T2 Ties keep the input order" in detail
-    assert "MUST FIX" not in detail                                      # the check rejected the blocking finding
+    assert "NOT DONE" in detail and "T2 Ties keep the input order" in detail
+    assert "MUST FIX - bugs and build errors (1)" in detail and "reverse sort breaks ties" in detail
+    not_checked = detail.split("NOT CHECKED", 1)[1].split("\n\n", 1)[0]
+    assert "no docstring on rank" in not_checked and "unproven: the docs rule of this repo" in not_checked
+    assert "callers pass None" in not_checked and "src/scores/limits.py" in not_checked
+    assert "changed in place" not in detail.split("DROPPED", 1)[0]       # rejected: not shown as a problem
+    assert "DROPPED - 1 claim(s)" in detail
     assert "D1" in detail and "unverified: the code that decides it could not be read" in detail   # said, not a shrug
     assert graph_values(client, tid)["data"]["ticket_review"]["missing"] == []
     assert "D7" in detail and "src/scores/ranks.py:2" in detail and "(script)" in detail   # the TODO, proven by the script
-    assert not any(c["claim"].startswith("D7") for c in checks)          # a script's not-met is not checked again
+    assert not any(c["claim"].startswith("D7") for c in claims)          # a script's not-met is not checked again
     labels = {o["label"]: o for o in s["waiting"]["questions"][0]["options"]}
-    assert {"summary", "notmet", "unclear", "minor"} <= set(labels) and "blocking" not in labels
+    assert {"summary", "notmet", "unclear", "blocking"} <= set(labels) and "minor" not in labels
 
 
 def test_a_pr_is_fetched_into_keels_refs_and_posted_only_after_post(client, repo, tmp_path, monkeypatch):
