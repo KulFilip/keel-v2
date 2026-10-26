@@ -57,7 +57,7 @@ export const kb = {
     get<HelperSession[]>(`/projects/${e(pid)}/helper/sessions`),
   create: (
     pid: string,
-    body: { mode?: HelperMode; model?: Model; title?: string } = {},
+    body: { mode?: HelperMode; model?: Model; title?: string; force?: boolean } = {},
   ) => post<HelperSession>(`/projects/${e(pid)}/helper/sessions`, body),
   session: (pid: string, sid: string) =>
     get<HelperSession>(`/projects/${e(pid)}/helper/sessions/${e(sid)}`),

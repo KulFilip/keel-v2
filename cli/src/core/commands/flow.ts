@@ -28,13 +28,13 @@ export async function draw(ctx: Ctx, kind: string, data: unknown, zoom?: string,
   return r.text;
 }
 
-async function startFlow(ctx: Ctx, wid: string, idea: string, flags: { fake?: boolean; dirty?: boolean; mode?: RunMode } = {}): Promise<Reply> {
+async function startFlow(ctx: Ctx, wid: string, idea: string, flags: { fake?: boolean; dirty?: boolean; force?: boolean; mode?: RunMode } = {}): Promise<Reply> {
   const p = needProject(ctx);
   const first = idea.split("\n")[0].trim();
   const title = first.length <= 72 ? first : first.slice(0, 71).trimEnd() + "…";
   try {
     const t = await api.startFlow(p.id, { workflow_id: wid, title, request: idea, options: { started_via: "tui" },
-      ...(flags.fake ? { allow_fake: true } : {}), ...(flags.dirty ? { allow_dirty: true } : {}),
+      ...(flags.fake ? { allow_fake: true } : {}), ...(flags.dirty ? { allow_dirty: true } : {}), ...(flags.force ? { force: true } : {}),
       // 0.18.28 /flow --mode important: the flow starts in that run mode (else the project's)
       ...(flags.mode ? { run_mode: flags.mode } : {}) });
     await ctx.core.refresh();
@@ -48,6 +48,28 @@ async function startFlow(ctx: Ctx, wid: string, idea: string, flags: { fake?: bo
     return ok(lines.join("\n"));
   } catch (e) {
     if (e instanceof ApiError && e.status === 409) {
+      const body = e.body ?? {};
+      // 0.18.57 untracked paths that are not the person's work: Ignore this path (.git/info/exclude), then start again
+      const ignorable = Array.isArray(body.ignorable) ? (body.ignorable as string[]) : [];
+      if (ignorable.length && !flags.dirty) {
+        const choices: Choice[] = [...ignorable.slice(0, 5).map((path) => ({ label: `Ignore ${path} (adds it to .git/info/exclude)`, value: `ignore:${path}` })),
+          { label: "Start anyway (my files stay out of keel's commits)", value: "dirty" }, { label: "No", value: "no" }];
+        return { blocks: errorReply(e).blocks, pick: { title: "Uncommitted work in the folder: what now?", choices,
+          then: async (v) => {
+            if (v.startsWith("ignore:")) {
+              await api.excludePath(p.id, v.slice("ignore:".length));
+              return startFlow(ctx, wid, idea, flags);
+            }
+            return v === "dirty" ? startFlow(ctx, wid, idea, { ...flags, dirty: true }) : text("Not started.");
+          } } };
+      }
+      // 0.18.57 one owner per task: say who works on it; start anyway only on a yes
+      const owners = Array.isArray(body.owners) ? (body.owners as { who: string; why: string }[]) : [];
+      if (owners.length && !flags.force) {
+        return { blocks: errorReply(e).blocks, pick: { title: `${owners.map((o) => `${o.who} (${o.why})`).join("; ")} — start anyway?`,
+          choices: [{ label: "Yes, start anyway (two agents on one task write over each other)", value: "yes" }, { label: "No", value: "no" }],
+          then: (v) => (v === "yes" ? startFlow(ctx, wid, idea, { ...flags, force: true }) : text("Not started.")) } };
+      }
       const m = (e.message + " " + (e.hint ?? "")).toLowerCase();
       const why = m.includes("fake model") && !flags.fake ? "fake" : (m.includes("uncommitted") || m.includes("dirty")) && !flags.dirty ? "dirty" : null;
       if (why) {

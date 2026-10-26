@@ -84,6 +84,25 @@ describe("commands", () => {
     expect(r2.blocks[0].text).not.toMatch(/phase none| at -/);
   });
 
+  it("0.18.57 a refused /flow offers Ignore <path> (.git/info/exclude) and, for a task someone works on, start anyway", async () => {
+    const { core: c, stub } = core();
+    await c.start();
+    const ctx = { core: c, width: 100 };
+    stub.state.dirty = ["meeting/"];
+    const r = await run(ctx, "/flow feature Add a /health endpoint");
+    expect(r.pick?.choices.map((x) => x.label)).toEqual(["Ignore meeting/ (adds it to .git/info/exclude)",
+      "Start anyway (my files stay out of keel's commits)", "No"]);
+    const r2 = await r.pick!.then("ignore:meeting/");
+    expect(stub.calls.some((x) => x.path === "/api/projects/demo/doctor/workspace/exclude" && (x.body as { path: string }).path === "meeting/")).toBe(true);
+    expect(r2.blocks[0].kind).toBe("ok");
+    stub.state.owner = { kind: "flow", id: "t1", who: "flow SHOPS-1234: Euro prices at red", why: "the same ticket SHOPS-1234" };
+    const r3 = await run(ctx, "/flow feature SHOPS-1234 rounding");
+    expect(r3.pick?.title).toContain("flow SHOPS-1234: Euro prices at red (the same ticket SHOPS-1234) — start anyway?");
+    await r3.pick!.then("yes");
+    const last = stub.calls.filter((x) => x.method === "POST" && x.path === "/api/projects/demo/flows").at(-1)!;
+    expect((last.body as { force?: boolean }).force).toBe(true);
+  });
+
   it("asks for the workflow, then the idea, when /flow has none", async () => {
     const { core: c } = core();
     await c.start();
