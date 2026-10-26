@@ -100,7 +100,8 @@ export function setup(sdk: KeelSdk) {
   sdk.registerSlot<ConnectionKindItem>(SLOTS.connectionsKind, {
     id: "gitlab",
     title: "GitLab",
-    order: 30,
+    // keel 0.18.57 Settings › Connections: the logins for every project first (GitHub, GitLab), then Jira per project
+    order: 8,
     component: GitLabSection,
   });
 

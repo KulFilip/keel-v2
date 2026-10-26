@@ -1,7 +1,7 @@
 // The Database plugin's web part (plugins/db): `npm run build:plugin -- db` (in web/) builds this file on its own into
 // plugins/db/web/dist/index.js. keel loads it at start from the url /api/features gives and calls setup() once. It puts
-// in the same places as keel 0.15.1, with the same ids, titles and order (and since keel 0.18.38 its page Control ›
-// Databases, for connections global or per project): its section in Connections (Databases), its
+// in the same places as keel 0.15.1, with the same ids, titles and order (and since keel 0.18.57 its tab Settings ›
+// Databases, for connections global or per project, with the Query panel): its
 // view in the Code page's activity bar (Database, while the plugin is on), a table or a console as an editor tab, its
 // workflow blocks (db:check, …), the Query panel under the Map plugin's database diagram (map.er.query), and KeelBot's
 // query button (keelbot.card, for keel-query blocks). It imports only @keel/web-sdk and react: keel's page shares its
@@ -14,13 +14,13 @@ import {
   type CodeActivityProps,
   type CodeTabItem,
   type CodeTabProps,
-  type ConnectionKindItem,
   type KeelbotCardItem,
   type KeelSdk,
   type MapErQueryItem,
+  type SettingsTabItem,
   type WorkflowActionsItem,
 } from "@keel/web-sdk";
-import { DatabasesPage, DatabasesSection } from "./Databases";
+import { DatabasesTab } from "./Databases";
 import { DbExplorer, DbTab, dbPath, dbTabTitle } from "./DbTool";
 import { QueryCard } from "./QueryCard";
 import { QueryPanel } from "./QueryPanel";
@@ -48,24 +48,15 @@ function DbEditorTab({ pid, tab, retarget }: CodeTabProps) {
 }
 
 export function setup(sdk: KeelSdk) {
-  // Control › Databases: connections for all projects (or some), and the chosen project's own
-  sdk.registerPage({
-    id: "databases",
-    label: "Databases",
-    group: "control",
-    order: 35,
-    needsProject: "optional",
-    icon: (
-      <path d="M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
-    ),
-    component: DatabasesPage,
-  });
-
-  sdk.registerSlot<ConnectionKindItem>(SLOTS.connectionsKind, {
+  // keel 0.18.57 Settings › Databases: connections for all projects (or some), and the chosen project's own, with the
+  // live database's Query under them. It was Control › Databases (#/databases opens the tab now) and a section of
+  // Connections before.
+  sdk.registerSlot<SettingsTabItem>(SLOTS.settingsTab, {
     id: "databases",
     title: "Databases",
-    order: 40,
-    component: DatabasesSection,
+    order: 60,
+    line: "Database connections for all projects, or for one. keel keeps each password encrypted; agents never see it.",
+    component: DatabasesTab,
   });
 
   sdk.registerSlot<CodeActivityItem>(SLOTS.codeActivity, {

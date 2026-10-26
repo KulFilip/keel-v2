@@ -5,7 +5,7 @@
 // (localStorage), so a reload or a second tab shows the same.
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { playKeelBot, useApp } from "@keel/web-sdk";
+import { playKeelBot, SwitchRow, useApp } from "@keel/web-sdk";
 
 const UNREAD_KEY = "keel2.keelbot.unread";
 const SOUND_KEY = "keel2.keelbot.sound";
@@ -184,36 +184,29 @@ export function KeelBotWatch() {
   return null;
 }
 
-/** KeelBot's own sound in the notification settings (the bell's drawer, slot notes.setting). */
+/** KeelBot's own sound in the notification settings (the bell's drawer and Settings › General › Notifications, slot
+ *  notes.setting). */
 export function KeelBotSoundField() {
   const { nset } = useApp();
   const [kbSound, setKbSound] = useKeelBotSound();
   return (
-    <div className="field">
-      <span className="lab">KeelBot</span>
-      <label className="chk switch">
-        <input type="checkbox" role="switch" id="n-keelbot" checked={kbSound} onChange={(e) => setKbSound(e.target.checked)} /> KeelBot's sound when an answer is ready
-      </label>
-      <div className="row">
-        <button className="btn sm" type="button" onClick={() => playKeelBot(nset.volume)}>Test KeelBot's sound</button>
-      </div>
-      <span className="hint">Its own sound: three short rising notes. It plays when you are not looking at that chat. Saved in this browser.</span>
+    <div className="ss-kbsound">
+      <SwitchRow on={kbSound} onChange={setKbSound} title="KeelBot's sound when an answer is ready"
+        help="Its own sound: three short rising notes. It plays when you are not looking at that chat. Saved in this browser." />
+      <button className="ss-btn sm" type="button" style={{ marginBottom: 8 }} onClick={() => playKeelBot(nset.volume)}>Test KeelBot's sound</button>
     </div>
   );
 }
 
-/** KeelBot's own sound in Settings › This browser (slot settings.browser). */
+/** KeelBot's own sound in Settings › General › This browser (slot settings.browser). */
 export function KeelBotSoundRow() {
   const { nset } = useApp();
   const [kbSound, setKbSound] = useKeelBotSound();
   return (
-    <div className="field sg-browser">
-      <label className="chk switch">
-        <input type="checkbox" role="switch" checked={kbSound} onChange={(e) => setKbSound(e.target.checked)} /> KeelBot's sound when an answer is ready
-      </label>
-      <span className="hint">Three short rising notes, not the notification chime. It plays when you are not looking at that chat. Do not disturb
-        silences it too. On at first.{" "}
-        <button type="button" className="btn sm" onClick={() => playKeelBot(nset.volume)}>Play it</button></span>
+    <div className="ss-kbsound">
+      <SwitchRow on={kbSound} onChange={setKbSound} title="KeelBot's sound when an answer is ready"
+        help="Three short rising notes, not the notification chime. It plays when you are not looking at that chat. Do not disturb silences it too. On at first." />
+      <button type="button" className="ss-btn sm" style={{ marginBottom: 8 }} onClick={() => playKeelBot(nset.volume)}>Play it</button>
     </div>
   );
 }
