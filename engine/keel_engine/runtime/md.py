@@ -75,10 +75,23 @@ def bullets(items: list[str]) -> str:
     return "\n".join(f"- {x}" for x in items)
 
 
+CODE_SPAN = re.compile(r"(`+)(?!`)(.+?)(?<!`)\1(?!`)")
+
+
 def safe_words(text: str) -> str:
-    """Prose from outside keel (a schema description, an agent's line): words with `_` or `*` become inline code, so
-    Markdown does not read them as italics or bold."""
-    s = str(text or "").replace("`", "'")
+    """Prose from outside keel (a schema description, an agent's line, a criterion): words with `_` or `*` become
+    inline code, so Markdown does not read them as italics or bold. A `code` span the writer made stays code (0.18.57:
+    a criterion's `wins` showed as 'wins'); only a stray backtick becomes a quote."""
+    s = str(text or "")
+    out, at = [], 0
+    for m in CODE_SPAN.finditer(s):
+        out += [_plain_words(s[at:m.start()]), m.group(0)]
+        at = m.end()
+    return "".join(out + [_plain_words(s[at:])])
+
+
+def _plain_words(s: str) -> str:
+    s = s.replace("`", "'")
     return re.sub(r"[^\s()\[\],;]*[_*][^\s()\[\],;]*", lambda m: code(m.group(0)), s)
 
 

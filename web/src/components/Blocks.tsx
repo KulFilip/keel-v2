@@ -17,6 +17,7 @@ import {
 } from "./flowmap";
 import type { LoopCtx } from "./builderOps";
 import { workTime, type AcFacts, type StepFacts } from "./stepFacts";
+import { Ticks } from "./ui";
 
 export type BlocksHandle = {
   /** Open the folds that hold a step, scroll it into view and (optionally) focus it. */
@@ -779,7 +780,7 @@ function AcRows({ ctx }: { ctx: Ctx }) {
               <span className="sc-ac-m" aria-hidden="true">{AC_MARK[st]}</span>
               <span className="sr-only">{STATE_LABEL[st]}: </span>
               <b>{a.id}</b>
-              {a.title && <span className="sc-ac-t" title={a.title}>{a.title}</span>}
+              {a.title && <span className="sc-ac-t" title={a.title}><Ticks text={a.title} /></span>}
               {nums.length > 0 && <span className="sc-ac-n">{nums.join(" · ")}</span>}
             </span>
             {shown.length > 0 && (

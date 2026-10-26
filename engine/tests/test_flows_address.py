@@ -50,6 +50,7 @@ def test_a_change_to_a_test_file_is_kept_tested_and_committed_as_a_test_change(c
     tid = start(client, repo, workflow="address", title="Address review: maybe a factory would fit here?", request=REQUEST)
     s = wait(client, tid)
     assert s["waiting"]["step"] == "look", s
+    assert "**Tests: pass**" in s["waiting"]["detail"]                      # 0.18.57 the look shows the test run
     assert not [e for e in client.bus.of(tid, "guard.refused")]            # nothing was put back
     assert "def make_scores" in (repo / "tests/test_scores.py").read_text()
     assert [r.agent for r in seen if r.agent in ("test-author", "implementer")] == ["implementer"]

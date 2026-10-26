@@ -25,7 +25,7 @@ import { initOffered, isInitFlow, markInitOffered, needsInit } from "../../compo
 import { InitBanner, SetupCard } from "../../components/InitSetup";
 import { type BlocksHandle } from "../../components/Blocks";
 import { useWide } from "../../components/useWide";
-import { Async, ErrorBox, PageHead, Panel, Pill, Tabs, type PillTone } from "../../components/ui";
+import { Async, ErrorBox, PageHead, Panel, Pill, Tabs, Ticks, type PillTone } from "../../components/ui";
 import { acLabel, clock } from "../../format";
 import { go, useApp, useLoad, useRoute } from "../../state";
 import { DecisionsPanel } from "./Decisions";
@@ -328,7 +328,7 @@ function AcsPanel({ thread }: { thread: ThreadState }) {
           {thread.acs.map((a, n) => (
             <div key={a.id} className="ac">
               <div className="row" style={{ justifyContent: "space-between" }}><b>{n + 1}. {a.id}</b><Pill tone={AC_TONE[a.status] ?? "idle"}>{acLabel(a.status)}</Pill></div>
-              <span className="sub">[{a.layer}] {a.title}</span>
+              <span className="sub">[{a.layer}] <Ticks text={a.title} /></span>
             </div>
           ))}
         </div>

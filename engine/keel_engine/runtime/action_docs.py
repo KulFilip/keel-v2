@@ -192,7 +192,8 @@ DOCS: dict[str, dict] = {
                    "and the chosen ones not written yet; a refresh without a list updates only these.",
     },
     "memory_skip": {
-        "summary": "The knowledge gate's skip: records the reason for the PR body; the knowledge check still runs.",
+        "summary": "The knowledge gate's skip: records the reason for the PR body; neither the librarian nor the "
+                   "knowledge check runs.",
     },
     "coverage_report": {
         "summary": "Says what cover leaves behind: the latest coverage verdict and every group accepted, not covered.",

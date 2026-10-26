@@ -7,7 +7,7 @@ import { questionsPayload, reasonsMissing } from "../../questions";
 import { ChoiceForm } from "../../components/ChoiceForm";
 import { Markdown, type FoldLabels } from "../../components/Markdown";
 import { autoLines, RunModeNote } from "../../components/RunMode";
-import { ErrorBox, Panel, Pill } from "../../components/ui";
+import { ErrorBox, Panel, Pill, Ticks } from "../../components/ui";
 import { kfmt, usd } from "../../format";
 import { go, useApp } from "../../state";
 import { useHasPage } from "../../sdk/registry";
@@ -210,13 +210,13 @@ export function GateCard({ thread, workflow, onDone }: { thread: ThreadState; wo
 
   return (
     <div className="interrupt" role="region" aria-label="Gate waits for you" onKeyDown={onKey}>
-      <h3><Pill tone="warn">◆ waits for you</Pill> {w.title}{showAc && ac ? ` — ${ac.id} [${ac.layer}] ${ac.title}` : ""}</h3>
+      <h3><Pill tone="warn">◆ waits for you</Pill> <Ticks text={w.title} />{showAc && ac ? <> — {ac.id} [{ac.layer}] <Ticks text={ac.title} /></> : null}</h3>
       <RunModeNote mode={thread.run_mode} kind={w.kind === "fix" && /dependenc/i.test(w.title) ? "dependency" : w.kind} title={w.title}
         auto={{ count: autoLines(thread.gate_log).length, last: autoLines(thread.gate_log).at(-1) }} />
       {labels.explain && <p className="sub" style={{ margin: 0 }}>{labels.explain}</p>}
       {plain && (
         <dl className="gc-lines" aria-label="What you decide">
-          <div><dt>You approve</dt><dd>{showAc && ac ? <><b>{ac.id}</b> “{ac.title}”</> : <b>{step?.name ?? w.title}</b>}</dd></div>
+          <div><dt>You approve</dt><dd>{showAc && ac ? <><b>{ac.id}</b> “<Ticks text={ac.title} />”</> : <b>{step?.name ?? w.title}</b>}</dd></div>
           <div><dt>So far</dt><dd>{kfmt(used)} tokens · {usd(thread.usage.cost_usd)} for this flow</dd></div>
           <div><dt>After approve</dt><dd>{after}</dd></div>
           <div><dt>After send back</dt><dd>{sentBack}</dd></div>

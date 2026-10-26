@@ -258,6 +258,19 @@ def test_coverage_decisions_carry_across_rounds_and_a_stalled_round_says_so(tmp_
     assert verdicts.latest("p9", "coverage")["commit"]
 
 
+def test_a_coverage_step_without_a_command_says_why_not_not_run(tmp_path):
+    """0.18.57 real use: cover ran (not skipped) on a project with no commands.coverage; the final review said
+    "coverage | not run" and the PR body "No coverage verdict", as if cover had been skipped."""
+    root, _git, _write, _commit_all = _lens_repo(tmp_path)
+    a = ActionInput(root=str(root), project="pcov", phase="coverage-fix", title="t", ac=None, acs=[], fake=False, flow="cover")
+    r = asyncio.run(run_action("verify_coverage", a))
+    assert r.ok and "coverage is not checked" in r.note
+    text = ship.final_report(str(root), "pcov", {"data": {}}, "Rank")
+    assert "| coverage | not available | no coverage command in .keel/config.yml (commands.coverage) |" in text
+    body = verdict_actions.pr_body(str(root), "pcov", {"data": {}}, "Rank", None)
+    assert "## Coverage\n\nNot measured: no coverage command in .keel/config.yml (commands.coverage)." in body
+
+
 def test_the_coverage_commit_refuses_added_production_lines_and_config_edits(tmp_path):
     from keel_engine.runtime.actions import commit
     root = tmp_path / "c"
@@ -631,7 +644,7 @@ def _knowledge_branch(repo, change_cited: bool):
 SKIP_ALL = {"skip": {"reviewers": "r", "doc_updates": "d", **{"release": "r", "cover": "c", "deps": "d", "spec_walk": "s"}}}
 
 
-def test_the_knowledge_update_is_asked_when_a_cited_file_changed_and_a_skip_reason_reaches_the_pr(client, repo, monkeypatch):
+def test_the_knowledge_update_is_asked_when_a_cited_file_changed_and_a_skip_skips_the_check_too(client, repo, monkeypatch):
     _knowledge_branch(repo, change_cited=True)
     seen = answers(monkeypatch, {})
     script(monkeypatch, ship_plan())
@@ -648,7 +661,11 @@ def test_the_knowledge_update_is_asked_when_a_cited_file_changed_and_a_skip_reas
     s = decide(client, tid, "approve", payload={"choice": "skip"}, why="a rename only, nothing to learn")
     assert s["waiting"]["step"] == "pr_gate" and not any(r.agent == "librarian" for r in seen)
     assert "## Knowledge base\n\nskipped: a rename only, nothing to learn" in s["waiting"]["detail"]
-    assert "memory_check" in [e["step"] for e in client.bus.of(tid, "step.finished") if not e["data"].get("skipped")]
+    # 0.18.57 the check does not run either: on a stale knowledge base it fails, and its librarian rounds are the update
+    # the person skipped (a real run spent $0.64 and 3.5 minutes there)
+    ran = [e["step"] for e in client.bus.of(tid, "step.finished") if not e["data"].get("skipped")]
+    assert "memory_skip" in ran and "memory_check" not in ran
+    assert "Neither the librarian nor the knowledge check runs" in w["detail"]
 
 
 def test_the_knowledge_update_runs_only_on_update_and_not_at_all_when_current(client, repo, monkeypatch):

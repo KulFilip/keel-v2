@@ -919,17 +919,20 @@ TEST_BUCKETS = ("api-test", "web-test", "e2e")
 def test_check(a):
     """quick (keel 0.19.x): the change comes with a test, or the agent said in one line why it cannot be tested
     (UNTESTABLE: <why>). Neither: the look gate's diff starts with that, so the person decides (soft: nothing is
-    refused). Runs after show_diff in the same step and leads its text."""
+    refused). Runs after show_diff in the same step and leads its text. 0.18.57: the test run the verify step just
+    made (data.test_run: command, pass or fail, the output's tail) comes before the diff, as quick's and address's look
+    gate showed no test result."""
     if not git.is_repo(a.root):
         return _ok("Not a git repository: no test check.")
     cfg = rules.load_config(a.root)
     mine = {f for f, fp in a.preexisting.items() if git.fingerprint(a.root, f) == fp}
     changed = [f for f in git.dirty(a.root) if f not in mine]
     tests = [f for f in changed if rules.classify(cfg, f) in TEST_BUCKETS]
+    shown = md.doc(test_run_part(a.data.get("test_run")), str(a.state.get("show") or ""))
     if tests:
-        return _ok(f"tests changed: {', '.join(tests[:5])}" + (f" (+{len(tests) - 5})" if len(tests) > 5 else ""))
+        return _ok(f"tests changed: {', '.join(tests[:5])}" + (f" (+{len(tests) - 5})" if len(tests) > 5 else ""),
+                   update={"show": shown})
     said = UNTESTABLE.search(str(a.state.get("last_answer") or ""))
-    shown = str(a.state.get("show") or "")
     same = NO_BEHAVIOUR.search(str(a.state.get("last_answer") or ""))
     if same and not said:
         head = (f"No test added or changed. The agent says no behaviour changes: {same.group(1).strip()[:300]}. The "
@@ -941,6 +944,24 @@ def test_check(a):
     head = ("NO TEST: no test was added or changed, and the agent did not say why it cannot be tested (an UNTESTABLE: "
             "line). Nothing proves this change. Approve to commit it without a test, or send it back to add one.")
     return _ok("no test added or changed", update={"show": f"{head}\n\n{shown}".strip()})
+
+
+TEST_TAIL_LINES = 12
+
+
+def test_run_part(run) -> str:
+    """The look gate's "## Tests": what the last test run said (verify_green without a criterion keeps it in
+    data.test_run), the command, pass or FAIL, and the last lines of its output."""
+    if not isinstance(run, dict):
+        return ""
+    cmds = [str(c) for c in run.get("commands") or [] if str(c).strip()]
+    out = [x for x in str(run.get("tail") or "").splitlines() if not x.startswith("$ ")]
+    while out and not out[-1].strip():
+        out.pop()
+    verdict = "pass" if run.get("ok") else "FAIL"
+    return md.section("Tests", f"**Tests: {verdict}** — {md.safe_words(run.get('note') or '')}".rstrip(" —"),
+                      ("Command: " + ", ".join(md.code(c) for c in cmds)) if cmds else "",
+                      md.fence("\n".join(out[-TEST_TAIL_LINES:]), "text") if out else "")
 
 
 # 0.18.57 address: the review thread in the request (plugins/review ReviewAddressService.request), and the intent check

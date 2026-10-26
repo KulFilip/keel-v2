@@ -58,7 +58,7 @@ steps:
     phase: memory
     when: { data: memory_plan.ask, equals: "yes" }
     choices: { update: memory, skip: memory_skip }
-  # reached only by the gate's skip (update jumps past it; unasked, its when is false): the reason, then the check
+  # reached only by the gate's skip (update jumps past it; unasked, its when is false): the reason; the check does not run
   - { id: memory_skip, kind: code, name: skip the knowledge update, action: memory_skip, then: memory_check, phase: memory,
       when: { data: memory_plan.ask, equals: "yes" } }
   - id: memory
