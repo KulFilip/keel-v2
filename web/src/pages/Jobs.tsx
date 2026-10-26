@@ -111,7 +111,9 @@ export function JobsPage({ pid }: { pid: string }) {
     (q) => api.jobs({ project: fProject || undefined, provider: fProvider || undefined, status: fStatus || "finished", q: q || undefined }),
     (q) => api.jobCount({ project: fProject || undefined, provider: fProvider || undefined, status: fStatus || "finished", q: q || undefined }));
   useEffect(() => {
-    const t = window.setInterval(() => void running.reload(), 5000);
+    const t = window.setInterval(() => {
+      if (!document.hidden) void running.reload(); // not while the tab is in the background
+    }, 5000);
     return () => window.clearInterval(t);
   }, [running.reload]);
   // a call that ends leaves Running: show it in Finished too

@@ -390,7 +390,9 @@ function OneReview({
     Object.values(r.ai?.buttons ?? {}).some((j) => j.status === "running");
   useEffect(() => {
     if (!running) return;
-    const t = window.setInterval(() => void R.loadAi(pid, reviewKey), 3000);
+    const t = window.setInterval(() => {
+      if (!document.hidden) void R.loadAi(pid, reviewKey); // not while the tab is in the background
+    }, 3000);
     return () => window.clearInterval(t);
   }, [running, pid, reviewKey]);
 
