@@ -150,7 +150,7 @@ class ToolBox:
         again = repeats.refusal(self.no_repeat, self.root, command)
         if again:
             return self._refuse("run_command", "", again, command=command)
-        v = rules.check_bash(self.phase, command, self.cfg,
+        v = rules.check_bash(self.phase, command, self.cfg, root=self.root,
                              exists=lambda rel: (Path(self.root) / rel).exists(), unlocks=self.unlocks,
                              push_blockers=self.push_blockers)
         if not v.ok:

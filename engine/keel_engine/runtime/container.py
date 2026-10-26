@@ -9,12 +9,15 @@ runs every command through it (`docker compose exec -T app vendor/bin/phpunit`).
             runner's `--version` through the same exec (preflight_commands); a failure stops at a plain gate
   worktrees `docker compose exec app ...` runs in the container's own folder, a mount of the project folder: a flow in
             .keel/worktrees/<name> would test the project folder's code, not its own. worktree_fit says so (from the
-            compose file's volumes), and the api starts such flows in the project folder
+            compose file's volumes), and the api starts such flows in the project folder. An agent may not start
+            containers from a worktree (rules.compose_in_worktree: `docker compose up` there made a second stack that
+            stayed running), and whatever compose made from a worktree goes when the flow ends (cleanup_worktree)
 
     exec_of(cmd)             {prefix, service, compose, files, rest} of a command that runs in a container, or None
     container_commands(root) [(key, cmd, exec)] for the configured commands that do
     preflight_commands(root) [(what, cmd, folder)] the preflight runs (configured, else derived)
     worktree_fit(root)       {ok, reason, service}: can a worktree flow run its tests?
+    cleanup_worktree(path)   [ids]: removes the containers docker compose made from a worktree
 """
 
 from __future__ import annotations
@@ -228,3 +231,63 @@ def start_check(root: str) -> dict:
     except Exception:            # noqa: BLE001
         pass
     return out
+
+
+# ------------------------------------------------------------------ a worktree's own containers
+
+COMPOSE_PROJECT = "com.docker.compose.project"
+COMPOSE_DIR = "com.docker.compose.project.working_dir"
+
+
+def _docker(args: list[str], timeout: int = 30) -> tuple[int, str]:
+    import shutil
+    import subprocess
+
+    exe = shutil.which("docker")
+    if not exe:
+        return 127, ""
+    try:
+        r = subprocess.run([exe, *args], capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        return 1, ""
+    return r.returncode, r.stdout or ""
+
+
+def worktree_containers(path: str) -> list[tuple[str, str]]:
+    """[(container id, compose project)] of the containers docker compose made from a folder in this worktree (their
+    working_dir label is the worktree or a folder in it). The project folder's own containers are never among them."""
+    if not rules.in_keel_worktree(path):
+        return []
+    mine = {os.path.normpath(str(path)), os.path.realpath(str(path))}
+    code, out = _docker(["ps", "-a", "--filter", f"label={COMPOSE_PROJECT}",
+                         "--format", f'{{{{.ID}}}}\t{{{{.Label "{COMPOSE_PROJECT}"}}}}\t{{{{.Label "{COMPOSE_DIR}"}}}}'])
+    if code != 0:
+        return []
+    found = []
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 3 or not parts[0].strip():
+            continue
+        cid, project, wd = parts[0].strip(), parts[1].strip(), os.path.normpath(parts[2].strip() or "/")
+        if any(wd == m or wd.startswith(m + os.sep) for m in mine):
+            found.append((cid, project))
+    return found
+
+
+def cleanup_worktree(path: str) -> list[str]:
+    """0.18.57 a flow's worktree containers go when the flow ends (and when its worktree is removed): the containers
+    docker compose made from the worktree (`up`, `run` and their dependencies), then their compose project's networks.
+    Volumes stay (they may hold data). Returns the ids removed; [] when there are none or docker is not there."""
+    found = worktree_containers(path)
+    if not found:
+        return []
+    ids = [cid for cid, _p in found]
+    code, _out = _docker(["rm", "-f", "-v", *ids], timeout=120)
+    if code != 0:
+        return []
+    for project in sorted({p for _c, p in found if p}):
+        _c, nets = _docker(["network", "ls", "-q", "--filter", f"label={COMPOSE_PROJECT}={project}"])
+        net_ids = [n.strip() for n in nets.splitlines() if n.strip()]
+        if net_ids:
+            _docker(["network", "rm", *net_ids])
+    return ids

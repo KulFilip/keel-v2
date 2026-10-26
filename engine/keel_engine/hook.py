@@ -260,7 +260,7 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
             refused = repeats.refusal(Path(ctx["_path"]).parent, root, str(ti.get("command") or ""))
         if refused:
             return refused
-        v = rules.check_bash(phase, str(ti.get("command") or ""), cfg,
+        v = rules.check_bash(phase, str(ti.get("command") or ""), cfg, root=root,
                              exists=lambda rel: (Path(root) / rel).exists(), unlocks=unlocks,
                              push_blockers=ctx.get("push_blockers"))
         if not v.ok:

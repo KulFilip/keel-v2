@@ -89,6 +89,9 @@ def remove(root: str, path: str, branch: str | None = None) -> None:
     p = Path(path)
     if p.exists():
         keep_keel_files(root, p)
+        from ..runtime import container   # 0.18.57 what docker compose made there goes with it
+
+        container.cleanup_worktree(str(p))
         r = git.git(root, "worktree", "remove", "--force", str(p))
         if r.returncode != 0 and p.is_relative_to(Path(root) / DIR):
             shutil.rmtree(p, ignore_errors=True)

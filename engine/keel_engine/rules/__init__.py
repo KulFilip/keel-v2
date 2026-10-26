@@ -634,6 +634,68 @@ def git_danger(cmd: str) -> str:
     return ""
 
 
+# docker compose's global options that take a value (`docker compose -f x.yml -p name up`)
+_COMPOSE_OPT_WITH_VALUE = {"-f", "--file", "-p", "--project-name", "--profile", "--env-file", "--project-directory",
+                           "--context", "-c", "--host", "-H", "--log-level", "--ansi", "--progress", "--parallel"}
+
+
+_LEAD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")               # VAR=value before the command
+_LEAD_WORDS = {"sudo", "exec", "time", "env", "nohup", "command"}
+
+
+def compose_starts(cmd: str, depth: int = 0) -> str:
+    """0.18.57 the compose call in a shell line that makes new containers: `docker compose up`, `docker-compose up`,
+    `docker compose create`, or `docker compose run` without --rm (its container stays). "" when there is none."""
+    for seg in _SEGMENTS.split(str(cmd or "")):
+        try:
+            words = shlex.split(seg)
+        except ValueError:
+            words = seg.split()
+        if depth < 3:
+            for w in words:
+                if " " in w.strip() and "compose" in w:
+                    found = compose_starts(w, depth + 1)
+                    if found:
+                        return found
+        for i, w in enumerate(words):
+            if not all(_LEAD.match(x) or x in _LEAD_WORDS for x in words[:i]):
+                break                  # an argument (`echo docker compose up`), not the command
+            base = w.rsplit("/", 1)[-1]
+            if base == "docker" and i + 1 < len(words) and words[i + 1] == "compose":
+                name, j = "docker compose", i + 2
+            elif base == "docker-compose":
+                name, j = "docker-compose", i + 1
+            else:
+                continue
+            while j < len(words) and words[j].startswith("-"):
+                j += 2 if ("=" not in words[j] and words[j] in _COMPOSE_OPT_WITH_VALUE) else 1
+            sub = words[j] if j < len(words) else ""
+            if sub in ("up", "create") or (sub == "run" and "--rm" not in words[j + 1:]):
+                return f"{name} {sub}"
+    return ""
+
+
+def in_keel_worktree(root: str | None) -> bool:
+    """Is this folder one of keel's flow worktrees (<project>/.keel/worktrees/<name>)?"""
+    return bool(root) and "/.keel/worktrees/" in str(root).replace("\\", "/").rstrip("/") + "/"
+
+
+def compose_in_worktree(cmd: str, root: str | None) -> Verdict | None:
+    """0.18.57 a flow in a worktree must not start the project's containers there. `docker compose up` in
+    .keel/worktrees/<name> makes a second copy of the whole stack (its compose project is named after the worktree
+    folder), and it stayed running after the flow. The project's containers run from the project folder."""
+    if not in_keel_worktree(root):
+        return None
+    hit = compose_starts(cmd)
+    if not hit:
+        return None
+    return Verdict(False, "compose-in-worktree",
+                   f'"{hit}" is not allowed in a flow\'s worktree: it starts a second copy of the project\'s containers '
+                   "(named after the worktree folder), and they stay running. The project's containers run from the "
+                   "project folder: ask the person to start them there (docker compose up -d), or stop and start this "
+                   "flow in the project folder. `docker compose run --rm` and `exec` are fine.")
+
+
 # a redirect (`>f`, `> f`, `>>f`, `2>f`; `2>&1` has no file) or sed -i / tee / perl -pi with its target
 _SHELL_WRITE = re.compile(r"(?<!>)>{1,2}\s*([^\s;|&<>()]+)|(?:sed\s+-i(?:\s+\S+)?|tee|perl\s+-pi)\s+([^\s;|&]+)")
 
@@ -662,6 +724,9 @@ def check_bash(phase: str, command: str, cfg: dict | None = None, *, root: str |
         return Verdict(False, "keel-setup", "keel-stack-setup is keel's own root helper for a stack's setup: block; agents "
                                             "never run it. Put the package in the stack's setup.apt instead.")
     v = pack_verdict(cfg, "bash", phase, cmd)
+    if v:
+        return v
+    v = compose_in_worktree(cmd, root)
     if v:
         return v
     v = push_gate(cfg, cmd, push_blockers)
