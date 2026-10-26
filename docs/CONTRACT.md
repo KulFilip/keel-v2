@@ -859,7 +859,7 @@ names, the layout) → write_config (an existing config gets only its init: bloc
 confidence, source} in .keel/config.yml) → lanes (ladder_soft ‖ one librarian per section written this run, each given the
 explorer's map) → doctor (one read-only setup-doctor for all failing rungs, resuming its session each round; it proposes,
 a keel-fix block holds the commands) → rung_report → rung_gate (when a rung fails: the DIAGNOSIS and the fix; apply_fix
-runs the shown commands | retry | skip → setup.not_checked | stop) → rung_apply → ... → knowledge_check → commit →
+runs the shown commands and writes a corrected rung command to .keel/config.yml | retry | skip → setup.not_checked | stop) → rung_apply → ... → knowledge_check → commit →
 summary (data.hand_over_detail) → audit_now (skip | hunt: start_flow hunt, semi, whole project; only a person answers it)
 → hand_over (rungs, sections written and kept, what was not checked, what next)`. `fast`: no knowledge sections by
 default, no surveyor, a rung that passed before with the same command is re-used. A re-run keeps the sections that exist
@@ -2520,8 +2520,10 @@ Plan: `docs/plans/0.17.5.md`.
   Plan windows (`usage`): continue "Continue anyway" (default), wait "Wait for the reset", cheaper "Use the cheaper
   model", stop "Stop the flow".
 - **init's `questions` pause** is `kind: "clarify"` with three questions (ids fixed): `run` "Where does the app run while
-  you develop?" (this machine / dev container / decide later), `services` (a compose file: `use <file>` / `I run them
-  myself`; none: `none` / `I run them myself` / `generate a compose file`), `knowledge` (`multiple: true`: architecture,
+  you develop?" (this machine / dev container / decide later, and `compose service <name>` first when the docs say the
+  tools run in a compose service's container or one compose service builds the project and mounts its folder; that
+  answer writes the backend commands as `docker compose exec -T <name> ...`), `services` (a compose file: `use <file>`,
+  written as `commands.services: docker compose up -d --wait` / `I run them myself`; none: `none` / `I run them myself` / `generate a compose file`), `knowledge` (`multiple: true`: architecture,
   domain, conventions, data, integrations). The recommended options are keel's defaults (a fast init recommends no
   section). `init_gates.from_answers(root, answers)` maps the answers to `init:`; approving without answers takes the
   defaults; options `approve` ("Use these answers") and `reject` ("Use my answers": an old client's typed words, read

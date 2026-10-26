@@ -7,7 +7,7 @@ version: 1
 # Options (StartThread.settings): fast (no knowledge base unless the user names sections, a rung that passed before
 # with the same command is re-used, no arch-surveyor).
 # A failing rung: one read-only setup-doctor diagnoses it and proposes a fix, then the rung gate shows the DIAGNOSIS
-# and the fix: apply_fix (keel runs the proposed commands) / retry / skip (setup.not_checked) / stop. A rung gate, the
+# and the fix: apply_fix (keel runs the proposed commands and writes a corrected rung command to .keel/config.yml) / retry / skip (setup.not_checked) / stop. A rung gate, the
 # git question and audit_now are only ever answered by a person (run_mode: SAFETY kinds rung and note).
 steps:
   - { id: git_check, kind: code, name: is this a git repository, action: git_check, phase: setup }

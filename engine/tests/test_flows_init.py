@@ -95,6 +95,58 @@ def test_a_failing_rung_shows_the_doctors_diagnosis_and_asks(client, repo, monke
         assert rung4["status"] == "pass" and (Path(repo) / FLAG).exists()
 
 
+# 0.18.57 e2e: the doctor's corrected command ran once (exit 0) but was never written to .keel/config.yml, so the
+# ladder ran the old command again and failed on the same rung
+FIXED = "cd __pycache__ && test -f built.flag"
+DOCTOR_CMD = (f"Rung 4 runs `test -f built.flag` in the project folder, but the file is in __pycache__/. The fix changes "
+              f"the rung's command.\n```keel-fix\n{FIXED}\n```\nDIAGNOSIS: fixable")
+
+
+def test_apply_fix_writes_the_corrected_rung_command_to_the_config(client, repo, monkeypatch):
+    (Path(repo) / "__pycache__").mkdir(exist_ok=True)
+    (Path(repo) / FLAG).write_text("")
+    (Path(repo) / ".keel").mkdir(exist_ok=True)
+    (Path(repo) / ".keel" / "config.yml").write_text("commands:\n  api_compile: 'test -f built.flag'\n  unit_tests: 'true'\n")
+    answers(monkeypatch, {"setup-doctor": lambda r: DOCTOR_CMD})
+    tid = start(client, repo, workflow="init", title="keel init", settings={**SETTINGS, "simulate_checks": False})
+    s = to(client, tid, wait(client, tid), "rung_gate")
+    assert s["waiting"]["choices"][0] == "apply_fix"
+    s = decide(client, tid, "approve", payload={"choice": "apply_fix"})
+    assert config(repo)["commands"]["api_compile"] == FIXED
+    assert s["waiting"]["step"] == "audit_now", (s["waiting"]["title"], s["waiting"]["detail"])
+    assert next(r for r in s["ladder"] if r["n"] == 4)["status"] == "pass"
+
+
+def test_corrected_commands_and_the_keel_config_block():
+    from keel_engine.runtime import init_actions
+
+    rungs = [{"n": 6, "cmd": "vendor/bin/phpunit", "key": "api_test_module"}, {"n": 2, "cmd": "composer install"}]
+    ran = ["docker compose up -d app", "docker compose exec -T app vendor/bin/phpunit"]
+    assert init_actions.corrected_commands(rungs, ran) == {"api_test_module": "docker compose exec -T app vendor/bin/phpunit"}
+    # a setup command that only starts something is not a corrected rung command
+    assert init_actions.corrected_commands(rungs, ["docker compose up -d app"]) == {}
+    text = ("x\n```keel-config\ncommands.unit_tests: docker compose exec -T app vendor/bin/phpunit\n"
+            "commands.nope: x\nbackend.dir: api\n```\nDIAGNOSIS: fixable")
+    assert init_actions.config_fixes(text) == {"unit_tests": "docker compose exec -T app vendor/bin/phpunit"}
+
+
+def test_a_fix_that_runs_the_tests_in_a_container_moves_the_other_backend_commands_there(tmp_path):
+    from keel_engine.runtime import init_actions
+    from keel_engine.runtime.actions import ActionInput
+
+    (tmp_path / ".keel").mkdir()
+    (tmp_path / ".keel" / "config.yml").write_text(
+        "commands:\n  api_test_module: vendor/bin/phpunit\n  api_test_ac: vendor/bin/phpunit --filter '{AC_ID}'\n"
+        "  web_test_module: npm test\n")
+    a = ActionInput(root=str(tmp_path), phase="setup", title="keel init", ac=None, acs=[], fake=True, flow="init",
+                    data={"failed_rungs": [{"n": 6, "cmd": "vendor/bin/phpunit", "key": "api_test_module"}]})
+    log = init_actions._apply_fix(a, ["docker compose exec -T app vendor/bin/phpunit"])
+    cmds = config(tmp_path)["commands"]
+    assert cmds["api_test_module"] == "docker compose exec -T app vendor/bin/phpunit"
+    assert cmds["api_test_ac"] == "docker compose exec -T app vendor/bin/phpunit --filter '{AC_ID}'"
+    assert cmds["web_test_module"] == "npm test" and "wrote to .keel/config.yml: commands.api_test_module" in log
+
+
 def test_a_rung_without_a_proposed_command_offers_no_apply_and_a_destructive_fix_is_refused(client, repo, monkeypatch):
     from keel_engine.runtime import init_actions
 

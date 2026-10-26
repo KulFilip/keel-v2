@@ -953,13 +953,16 @@ def revert_manifests(root: str, files: list[str]):
             (Path(root) / rel).unlink(missing_ok=True)
 
 
-def _detect(root: str) -> dict:
+def _detect(root: str, init: dict | None = None) -> dict:
+    from . import init_gates
+
     r = Path(root)
     cfg: dict = {"version": 4}
     if (r / "pyproject.toml").exists():
         cfg["backend"] = {"dir": "", "build": "python -m pytest"}
     # The same commands keel uses without a config (node:test needs --test-name-pattern, not Jest's -t).
-    cmds = testcmd.config_commands(root)
+    # 0.18.57 with init's answers: the backend commands run in the compose service chosen, the services start command
+    cmds = init_gates.answered_commands(root, init, testcmd.config_commands(root))
     if cmds:
         cfg["commands"] = cmds
     # 0.18.17 the commands were found in one backend subfolder: written as backend.dir, so they run there
@@ -1017,10 +1020,18 @@ def _write_config(a: ActionInput) -> ActionResult:
         cfg["init"] = stored
         if build:
             cfg["knowledge"] = {**(cfg.get("knowledge") if isinstance(cfg.get("knowledge"), dict) else {}), "build": build}
+        # 0.18.57 an answer that runs the tools in a compose service (or starts the services) changes the commands too
+        from . import init_gates
+
+        have = cfg.get("commands") if isinstance(cfg.get("commands"), dict) else {}
+        cmds = init_gates.answered_commands(a.root, a.init, have)
+        if cmds != have:
+            cfg["commands"] = cmds
         f.write_text(head + yaml.safe_dump(cfg, sort_keys=False))
-        return ActionResult(True, ".keel/config.yml exists; its init: block now has your answers.", f.read_text())
+        return ActionResult(True, ".keel/config.yml exists; its init: block now has your answers"
+                            + (" and the commands they change." if cmds != have else "."), f.read_text())
     f.parent.mkdir(parents=True, exist_ok=True)
-    cfg = _detect(a.root)
+    cfg = _detect(a.root, a.init)
     if (a.init or {}).get("layout") in layout.LAYOUTS:
         cfg["layout"] = a.init["layout"]
         if cfg["layout"] != "repo":

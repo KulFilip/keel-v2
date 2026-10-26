@@ -25,6 +25,12 @@ When keel can apply the fix with shell commands run in the project folder (start
 docker compose up -d db
 ```
 
-The person sees the block and chooses whether keel runs it. Leave the block out when the fix needs the person (install a JDK, start Docker Desktop, get a secret), and never put a destructive command in it (deleting data, `git reset`, `docker system prune`).
+When the rung's own command is wrong (the tools live only in a container, it runs in the wrong folder, it needs other options), do not only run the corrected command: name it in one `keel-config` block, one `commands.<key>: <command>` line per rung (each failing rung tells its key). keel writes it to `.keel/config.yml`, so the ladder and every flow run the corrected command from then on:
+
+```keel-config
+commands.api_test_module: docker compose exec -T app vendor/bin/phpunit
+```
+
+The person sees the blocks and chooses whether keel applies them. Leave the block out when the fix needs the person (install a JDK, start Docker Desktop, get a secret), and never put a destructive command in it (deleting data, `git reset`, `docker system prune`).
 
 End with exactly one line: `DIAGNOSIS: fixable`, `DIAGNOSIS: needs-you`, or `DIAGNOSIS: unknown`.

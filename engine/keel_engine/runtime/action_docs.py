@@ -573,13 +573,16 @@ DOCS: dict[str, dict] = {
     "rung_report": {
         "summary": "Builds the rung gate's text from the setup doctor's answer: the failing rungs, the DIAGNOSIS, the "
                    "proposed fix and the commands apply_fix would run.",
-        "steps": ["The commands come from the doctor's keel-fix block (data.rung_fix); without one the gate offers no apply_fix.",
+        "steps": ["The commands come from the doctor's keel-fix block (data.rung_fix), corrected rung commands from its "
+                  "keel-config block (data.rung_config); without either the gate offers no apply_fix.",
                   "The text is data.rung_gate_detail, with what the last applied fix did."],
     },
     "rung_apply": {
         "summary": "Applies your answer for a failing rung: apply_fix (run the proposed commands), retry, or skip "
                    "(setup.not_checked).",
         "steps": ["apply_fix: each command is checked by the setup phase's command rules, then run; the first failure stops.",
+                  "apply_fix: when all ran, the corrected rung commands (the keel-config block, and a fix command that "
+                  "is a failing rung's command corrected) are written to commands in .keel/config.yml.",
                   "skip: the rung number is added to setup.not_checked in .keel/config.yml.",
                   "Then the ladder runs again; a rung that still fails goes back to the setup doctor."],
     },

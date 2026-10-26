@@ -12,6 +12,10 @@ goes to `.keel/ladder.json` ({at, rungs}).
 A rung the user excluded (`setup.ladder_exclude: [n]`) or accepted as not checked (`setup.not_checked: [n]`) in
 `.keel/config.yml` is skipped and says so. A fast init (`reuse`) passes a rung that passed last time with the same
 command without running it again; the guard self-test always runs.
+
+0.18.57 a project whose commands run in a docker compose service: rung 1 checks docker instead of the stack's runtime
+(php lives in the container), and the services rung runs right after it (the container must be up before the first
+command that execs into it). An init answer "services: use <compose file>" starts them when commands.services is empty.
 """
 
 from __future__ import annotations
@@ -43,9 +47,12 @@ def _custom(root: str) -> dict:
     return rules.load_config(root).get("commands") or {}
 
 
-def _toolchain(root: str) -> list[str]:
+def _toolchain(root: str, boxed: bool = False) -> list[str]:
     r = Path(root)
     need = ["git"]
+    if boxed:
+        # the stack's runtime lives in the container the commands exec into: keel needs docker, not php
+        return need + ["docker"]
     if (r / "gradlew").exists() or (r / "pom.xml").exists():
         need.append("java")
     if (r / "package.json").exists():
@@ -77,10 +84,22 @@ def _missing(root: str, missing: list[str]) -> str:
     return "\n".join(lines)
 
 
-def plan(root: str) -> list[dict]:
-    """Every rung with the command it would run (None = skipped), nothing run."""
+def _boxed(c: dict) -> bool:
+    from . import container
+
+    return any(isinstance(c.get(k), str) and container.exec_of(c[k]) for k in container.TEST_KEYS)
+
+
+def plan(root: str, commands: dict | None = None) -> list[dict]:
+    """Every rung with the command it would run (None = skipped), nothing run. `commands`: the commands to plan with
+    instead of .keel/config.yml's (init's plan, before the config is written)."""
+    from . import init_gates
+
     r = Path(root)
-    c = _custom(root)
+    c = dict(commands) if commands is not None else _custom(root)
+    if not c.get("services"):
+        c["services"] = init_gates.services_command(root, (rules.load_config(root) or {}).get("init"))
+    boxed = _boxed(c)
     cmds: dict[int, str | None] = {n: c.get(k) for n, k in CONFIG_KEY.items()}
     if not cmds[2]:
         if (r / "gradlew").exists():
@@ -95,7 +114,7 @@ def plan(root: str) -> list[dict]:
         cmds[4] = "python3 -m compileall -q src"
     if not cmds[6]:
         cmds[6] = c.get("api_test_module") or testcmd.command_for(root)
-    out = [{"n": 1, "name": NAMES[0], "cmd": "check: " + ", ".join(_toolchain(root)), "status": "waiting"}]
+    out = [{"n": 1, "name": NAMES[0], "cmd": "check: " + ", ".join(_toolchain(root, boxed)), "status": "waiting"}]
     for n in range(2, 12):
         rung = {"n": n, "name": NAMES[n - 1], "cmd": cmds.get(n), "status": "waiting"}
         # which .keel/config.yml command this rung runs, if any: it runs in its part's folder (see run)
@@ -116,6 +135,8 @@ def plan(root: str) -> list[dict]:
             rung["status"] = "skipped"
             rung["detail"] = ("optional: no commands." + CONFIG_KEY[rung["n"]] + " in .keel/config.yml") if rung["n"] in OPTIONAL \
                 else "no command for this stack"
+    if boxed and cmds.get(8):
+        out.insert(1, out.pop(next(i for i, x in enumerate(out) if x["n"] == 8)))
     return out
 
 
@@ -151,7 +172,7 @@ def run(root: str, simulate: bool, runner: Callable[[str, str], tuple[int, str]]
             rung["status"] = "fixing"
             save(root, rungs)
         if rung["n"] == 1:
-            missing = [t for t in _toolchain(root) if not simulate and not shutil.which(t)]
+            missing = [t for t in _toolchain(root, _boxed(_custom(root))) if not simulate and not shutil.which(t)]
             rung["status"], rung["detail"] = ("fail", _missing(root, missing)) if missing else ("pass", "found")
         elif (rung["n"], rung["cmd"]) in passed_before and rung["n"] != 12:
             rung["status"], rung["detail"] = "pass", "passed before with this command (fast init re-used it)"

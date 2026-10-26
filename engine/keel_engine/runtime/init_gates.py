@@ -5,6 +5,12 @@ ids run, services, knowledge, and layout while the config names none; the defaul
 the answers map to the config with from_answers; an old client's typed answer still goes through the keyword parser
 (answers). The result is written to .keel/config.yml (init:), where the librarians read the chosen sections.
 
+0.18.57 a project whose tools live only in a docker compose service (the README, ONBOARDING.md, CONTRIBUTING or the
+knowledge base say "run the tests in the app container", or a compose service builds the project and mounts its folder):
+"Where does the app run?" offers "compose service <name>" (recommended when the docs say so), and that answer writes the
+backend commands as `docker compose exec -T <name> ...` (container.py reads them from there). "services: use <compose
+file>" writes commands.services (`docker compose up -d --wait`), and the ladder honours it in an older config too.
+
 A re-run keeps what exists (keel v1: confirming again adds): a knowledge section that is there already is not
 recommended and not rebuilt unless it is ticked. init's `knowledge_sections` is the whole selection (kept + written),
 `write_sections` the ones the librarians write this run (not stored in the config).
@@ -15,6 +21,7 @@ question offers "Build project notes" (all five) with the expected cost, and the
 from __future__ import annotations
 
 import re
+import shlex
 from pathlib import Path
 
 import yaml
@@ -35,6 +42,142 @@ COMPOSE = ("compose.yml", "compose.yaml", "docker-compose.yml", "docker-compose.
 
 def compose_file(root: str) -> str | None:
     return next((c for c in COMPOSE if (Path(root) / c).is_file()), None)
+
+
+def compose_services(root: str) -> dict[str, dict]:
+    """{name: service} of the compose file's services ({} without a readable compose file)."""
+    comp = compose_file(root)
+    try:
+        data = yaml.safe_load((Path(root) / comp).read_text()) if comp else None
+    except (OSError, yaml.YAMLError):
+        return {}
+    svcs = data.get("services") if isinstance(data, dict) else None
+    return {str(k): v for k, v in svcs.items() if isinstance(v, dict)} if isinstance(svcs, dict) else {}
+
+
+DOC_FILES = ("README.md", "README", "README.rst", "README.txt", "ONBOARDING.md", "CONTRIBUTING.md", "CONTRIBUTING",
+             "DEVELOPMENT.md", "TESTING.md", "docs/README.md", "docs/ONBOARDING.md", "docs/CONTRIBUTING.md")
+# "run the tests only in the app container", "inside the `php` service": the service a doc line names
+_IN_CONTAINER = re.compile(r"\b(?:in|inside|within|into)\s+(?:the\s+|an?\s+)?[`'\"]?([A-Za-z0-9][\w.-]*)[`'\"]?\s+"
+                           r"(?:docker\s+|compose\s+)?(?:container|service)\b", re.I)
+_TOOLING = re.compile(r"\b(tests?|phpunit|pytest|jest|lint|composer|artisan|npm|run|runs|commands?|tools?|php|python|"
+                      r"node|only)\b", re.I)
+
+
+def _doc_files(root: str) -> list[Path]:
+    """The project's own docs that say how to run things: the root's README / ONBOARDING / CONTRIBUTING, docs/*.md and
+    the knowledge base (at most 60 files)."""
+    from .. import layout
+
+    r = Path(root)
+    out = [r / f for f in DOC_FILES if (r / f).is_file()]
+    for d in dict.fromkeys([r / "docs", r / layout.resolve(root).knowledge]):
+        if d.is_dir():
+            out += [f for f in sorted(d.glob("*.md")) if f not in out]
+    return out[:60]
+
+
+def _exec_service(line: str, services: dict) -> str | None:
+    """The compose service a doc line runs a command in (`docker compose exec app vendor/bin/phpunit`)."""
+    from . import container
+
+    i = line.find("docker")
+    while i >= 0:
+        ex = container.exec_of(line[i:].split("`")[0])
+        if ex and ex["compose"] and ex["service"] in services:
+            return ex["service"]
+        i = line.find("docker", i + 1)
+    return None
+
+
+def app_service(root: str) -> str | None:
+    """The compose service that builds this project and mounts its folder (the app's own container), when exactly one
+    does."""
+    from . import container
+
+    real = str(Path(root).resolve())
+    found = []
+    for name, svc in compose_services(root).items():
+        if not svc.get("build"):
+            continue
+        mounts, _f = container.service_mounts(root, name)
+        if any(str(Path(src).resolve()) == real for src, _t in mounts):
+            found.append(name)
+    return found[0] if len(found) == 1 else None
+
+
+def container_hint(root: str) -> dict | None:
+    """{service, source, from_docs}: the compose service the project's tools run in. A doc that runs a command in a
+    compose service, or says the tests or tools run in a service's container, wins (from_docs, source "README.md:5");
+    else the one compose service that builds the project and mounts its folder. None without a compose file."""
+    services = compose_services(root)
+    if not services:
+        return None
+    for f in _doc_files(root):
+        try:
+            text = f.read_text(errors="replace")[:300_000]
+        except OSError:
+            continue
+        rel = f.relative_to(Path(root)).as_posix() if f.is_relative_to(Path(root)) else f.name
+        for n, line in enumerate(text.splitlines(), 1):
+            svc = _exec_service(line, services) if "docker" in line else None
+            if not svc:
+                svc = next((m.group(1) for m in _IN_CONTAINER.finditer(line) if m.group(1) in services
+                            and _TOOLING.search(line)), None)
+            if svc:
+                return {"service": svc, "source": f"{rel}:{n}", "from_docs": True}
+    svc = app_service(root)
+    return {"service": svc, "source": f"{compose_file(root)}: {svc} builds the project and mounts its folder",
+            "from_docs": False} if svc else None
+
+
+COMPOSE_RUN = "compose service "
+
+
+def run_service(init: dict | None) -> str | None:
+    """The compose service init's answer runs the tools in ("compose service app" -> "app"), else None."""
+    r = str((init or {}).get("runs_on") or "")
+    return r[len(COMPOSE_RUN):].strip() or None if r.startswith(COMPOSE_RUN) else None
+
+
+def services_command(root: str, init: dict | None) -> str | None:
+    """The command that starts the services when the answer was "use <compose file>"."""
+    from . import container
+
+    s = str((init or {}).get("services") or "")
+    f = s[4:].strip() if s.startswith("use ") else ""
+    if not f or not (Path(root) / f).is_file():
+        return None
+    return f"docker compose{'' if f in container.DEFAULT_COMPOSE else ' -f ' + shlex.quote(f)} up -d --wait"
+
+
+def answered_commands(root: str, init: dict | None, cmds: dict) -> dict:
+    """The commands with init's answers applied: run in a compose service -> the backend commands go through
+    `docker compose exec -T <service>`; services "use <compose file>" -> commands.services, unless one is set."""
+    from . import container
+
+    out = dict(cmds or {})
+    svc = run_service(init)
+    if svc:
+        out.update(container.wrap(out, container.exec_prefix(svc, compose_file(root))))
+    start = services_command(root, init)
+    if start and not str(out.get("services") or "").strip():
+        out["services"] = start
+    return out
+
+
+def _compose_run(root: str, t: str) -> str | None:
+    """"compose service app", "in the app container", "the php service": the compose service an answer names."""
+    if "dev container" in t or "devcontainer" in t:
+        return None
+    services = compose_services(root)
+    m = re.search(r"compose service\s+[`'\"]?([\w.-]+)", t)
+    named = [n for n in services if m and n.lower() == m.group(1).lower()]
+    if not named and re.search(r"\b(container|compose|docker|service)\b", t):
+        named = [n for n in services if re.search(rf"(?<![\w.-]){re.escape(n.lower())}(?![\w.-])", t)]
+        if not named and (hint := container_hint(root)) and "compose" in t:
+            named = [hint["service"]]
+    return COMPOSE_RUN + named[0] if named else None
 
 
 def existing_sections(root: str) -> list[str]:
@@ -93,7 +236,9 @@ def with_kept(root: str, a: dict) -> dict:
 def defaults(root: str, fast: bool = False) -> dict:
     """keel's answers when the user gives none. A fast init writes no knowledge base unless the user names sections;
     a re-run writes only the sections still missing."""
-    d = {"runs_on": "dev container" if (Path(root) / ".devcontainer").is_dir() else "this machine",
+    hint = container_hint(root)
+    d = {"runs_on": COMPOSE_RUN + hint["service"] if hint and hint["from_docs"] else
+         "dev container" if (Path(root) / ".devcontainer").is_dir() else "this machine",
          "services": f"use {compose_file(root)}" if compose_file(root) else "none",
          "knowledge_sections": to_write(root, fast)}
     if layout_asked(root):
@@ -136,10 +281,17 @@ def clarify_questions(root: str, fast: bool = False, cost: str | None = None) ->
                                  "recommended": False},
                                 {"label": "generate a compose file", "description": "keel writes one for the services it finds",
                                  "recommended": False}]}
+    hint = container_hint(root)
+    run = [{"label": k, "description": v, "recommended": d["runs_on"] == k} for k, v in RUNS_ON.items()]
+    if hint:
+        label = COMPOSE_RUN + hint["service"]
+        run.insert(0, {"label": label, "recommended": d["runs_on"] == label,
+                       "description": f"the tools run in the compose service {hint['service']} ({hint['source']}): keel "
+                                      f"runs the tests and checks as docker compose exec -T {hint['service']} …"})
     out = [
         {"id": "run", "question": "Where does the app run while you develop?",
          "why": "keel runs the build, the tests and the services there.",
-         "options": [{"label": k, "description": v, "recommended": d["runs_on"] == k} for k, v in RUNS_ON.items()]},
+         "options": run},
         services,
         {"id": "knowledge", "question": "Build project notes (a knowledge base keel's agents can read)?",
          "why": ("Off unless you tick something: keel's agents read the code itself, and in keel's own tests they "
@@ -175,6 +327,8 @@ def from_answers(root: str, given: dict | None, fast: bool = False) -> dict:
         t = run.strip().lower()
         if t in RUNS_ON:
             a["runs_on"] = t
+        elif boxed := _compose_run(root, t):
+            a["runs_on"] = boxed
         else:
             a["runs_on"] = answers(root, t, fast)["runs_on"]
             said.append(run.strip())
@@ -234,7 +388,9 @@ def questions(root: str, fast: bool = False, cost: str | None = None) -> str:
     lines = [("Four" if "layout" in d else "Three") + " questions before keel sets this project up. Approve to use the defaults (in brackets), or answer "
              "in your own words with “Use my answers”, for example: “1 dev container · 2 I run them myself · "
              "3 conventions, data”.", "",
-             f"1. Where does the app run while you develop?  this machine / dev container / decide later   [{d['runs_on']}]"]
+             f"1. Where does the app run while you develop?  "
+             + (f"{COMPOSE_RUN}{hint['service']} / " if (hint := container_hint(root)) else "")
+             + f"this machine / dev container / decide later   [{d['runs_on']}]"]
     comp = compose_file(root)
     if comp:
         lines.append(f"2. {comp} exists. Use it for services (databases, queues)?  use it / I run them myself   [use it]")
@@ -269,9 +425,11 @@ def _parts(t: str) -> dict[str, str] | None:
     return out
 
 
-def _runs_on(t: str) -> str | None:
+def _runs_on(t: str, root: str | None = None) -> str | None:
     if "dev container" in t or "devcontainer" in t:
         return "dev container"
+    if root and (boxed := _compose_run(root, t)):
+        return boxed
     if "decide later" in t:
         return "decide later"
     # 0.18.17 "this machine" before a bare "later": the words name the choice, "later" may be about something else
@@ -305,7 +463,7 @@ def answers(root: str, text: str | None, fast: bool = False) -> dict:
         return with_kept(root, a)
     parts = _parts(t)
     run_t, srv_t, sec_t = (parts.get("1", ""), parts.get("2", ""), parts.get("3", "")) if parts else (t, t, t)
-    if run := _runs_on(run_t):
+    if run := _runs_on(run_t, root):
         a["runs_on"] = run
     if srv := _services(root, srv_t, parts is not None):
         a["services"] = srv
@@ -411,6 +569,20 @@ def plan(root: str, init: dict) -> str:
 
     cfg_exists = (Path(root) / ".keel" / "config.yml").is_file()
     cmds, cmd_dir = _plan_commands(root, cfg_exists)
+    # 0.18.57 the answers change the commands: the compose service the tools run in, the services' start command
+    if cfg_exists:
+        have = layout.raw_config(root).get("commands") or {}
+        have = have if isinstance(have, dict) else {}
+        changed = {k: v for k, v in answered_commands(root, init, have).items() if have.get(k) != v}
+        if run_service(init):
+            cmds = {**cmds, **{k: v for k, v in changed.items() if k in cmds}}
+            if "api_test_module" in cmds and "unit_tests" in changed and not have.get("api_test_module"):
+                cmds["api_test_module"] = changed["unit_tests"]
+        rung_cmds = {**have, **changed}
+    else:
+        changed = {}
+        cmds = answered_commands(root, init, cmds)
+        rung_cmds = cmds
     write = init.get("write_sections") if "write_sections" in init else (init.get("knowledge_sections") or [])
     kept = [s for s in existing_sections(root) if s not in (write or [])]
     lay_name = init.get("layout") if init.get("layout") in layout.LAYOUTS else None
@@ -422,6 +594,9 @@ def plan(root: str, init: dict) -> str:
         lines.append("1. Update .keel/config.yml: it exists, so only its init: block is written (your answers below); "
                      "everything else is left as it is.")
         lines += ["   " + l for l in yaml.safe_dump({"init": stored}, sort_keys=False).splitlines()]
+        if changed:
+            lines.append("   and, from your answers, these commands:")
+            lines += ["   " + l for l in yaml.safe_dump({"commands": changed}, sort_keys=False).splitlines()]
     else:
         lines.append("1. Write .keel/config.yml:")
         block = {"version": 4, "layout": lay.name, **({"backend": {"dir": cmd_dir}} if cmd_dir else {}),
@@ -433,7 +608,7 @@ def plan(root: str, init: dict) -> str:
               f"   test command: {testcmd.shown(cmds['api_test_module'], cmd_dir) if cmds.get('api_test_module') else 'none found — the ladder will say so'}",
               f"   one criterion: {testcmd.shown(cmds['api_test_ac'], cmd_dir) if cmds.get('api_test_ac') else '-'}"]
     try:
-        rungs = ladder.plan(root)
+        rungs = ladder.plan(root, commands=rung_cmds)
     except Exception:       # noqa: BLE001 - the plan is text; a broken config must not hide the gate
         rungs = []
     for r in rungs:
