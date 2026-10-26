@@ -386,7 +386,7 @@ def change_size(a):
     if triggers:
         size = "feature"
     lines = [f"Proposed: {size}", ""]
-    reason = (a.state.get("last_answer") or "").strip()
+    reason = triage_reason(a.state.get("last_answer") or "")
     if reason:
         lines += [reason[:1500], ""]
     if acs:
@@ -402,6 +402,26 @@ def change_size(a):
               "data": {**a.data, "change": {"recommended": size, "triggers": triggers, "limit": limit}},
               "markers": _markers(a, {"SIZE": size})}
     return _ok(f"triage: {size}" + (f" ({len(acs)} criteria)" if acs else ""), update=update)
+
+
+# 0.18.57 what the triage agent says about itself, not about the change (a resumed session: "Same session — keeping
+# the criteria from before."); the scope gate showed it above the criteria
+_CHATTER = re.compile(r"^\W*(?:same session|this session|new session|still the same session|continuing|resuming|"
+                      r"picking up|as before|keeping the (?:criteria|same)|ok(?:ay)?\b|sure\b|got it|understood|alright)",
+                      re.I)
+_CRITERION = re.compile(r"\b(?:AC-\d+|CHG-\d+\.\d+)\b[*:.)\s\u2013\u2014-]*\[(?:API|WEB|E2E|SMOKE)\]", re.I)
+_MARKER = re.compile(r"^\W*(?:SIZE|WHY)\W*:", re.I)
+_CRITERIA_HEAD = re.compile(r"^\W*(?:#+\s*)?(?:acceptance\s+)?criteria\W*$", re.I)
+
+
+def triage_reason(text: str) -> str:
+    """The triage answer as the scope gate shows it: why this size and the files, without its own criteria lines (the
+    gate lists the criteria once, with keel's CHG ids), its marker lines, a criteria heading left empty, and its talk
+    about itself (tool log, "I'll …", "Same session — keeping the criteria …")."""
+    out = [line for line in spike_report.clean(text).splitlines()
+           if not (_CRITERION.search(line) or _MARKER.match(line) or _CRITERIA_HEAD.match(line)
+                   or (_CHATTER.match(line) and len(line) < 240))]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
 
 
 def _change_ids(root: str, acs: list[dict]) -> list[dict]:

@@ -586,6 +586,22 @@ def test_change_small_runs_the_loop_with_one_gate_at_the_end(client, repo, monke
     assert [x.split(":")[0] for x in log(repo) if "CHG-" in x] == ["feat(CHG-1.2)", "test(CHG-1.2)", "feat(CHG-1.1)", "test(CHG-1.1)"]
 
 
+def test_change_scope_gate_shows_the_criteria_once_and_no_agent_chatter(client, repo, monkeypatch):
+    """0.18.57 real use: the scope gate showed "Same session — keeping the criteria…" and the triage's own AC-1/AC-2
+    lines above keel's CHG-1.1/CHG-1.2 list: the same criteria twice, with different ids."""
+    said = ("Same session — keeping the criteria from the first triage.\n\n"
+            "Small: the rank orders by wins now, and a test can see it. Files: src/scores/rank.py.\n\n"
+            "Criteria:\n- **AC-1** [API] the rank orders players by `wins`\n- **AC-2** [API] a tie keeps the older player first\n\n"
+            "SIZE: small")
+    answers(monkeypatch, {"explorer": lambda r: said})
+    tid = start(client, repo, workflow="change", title="Tweak ranks")
+    d = wait(client, tid)["waiting"]["detail"]
+    assert "Small: the rank orders by wins now" in d and "Files: src/scores/rank.py." in d
+    assert "- CHG-1.1 [API] the rank orders players by `wins`" in d and "- CHG-1.2 [API] a tie keeps" in d
+    assert "Same session" not in d and "AC-1" not in d and "AC-2" not in d and "SIZE: small" not in d
+    assert d.count("the rank orders players by") == 1 and d.count("Criteria:") == 1
+
+
 def test_change_trivial_is_one_refactor_commit(client, repo, monkeypatch):
     seen = answers(monkeypatch, {"explorer": lambda r: "A rename; no test could notice.\nSIZE: trivial"})
     script(monkeypatch, ship_plan())
