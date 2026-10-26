@@ -129,6 +129,9 @@ class AgentKnowledge(BaseModel):
     code_graph: bool | None = None
     memory: bool | None = None
     strict: bool | None = None
+    # 0.18.57 the "where to look" lookups (agent_knowledge.py): without this field pydantic dropped it, so hints on in
+    # the Agents drawer never reached a flow's agent or KeelBot
+    hints: bool | None = None
 
 
 class AgentSettings(BaseModel):

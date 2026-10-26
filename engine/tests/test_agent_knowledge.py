@@ -142,6 +142,15 @@ def test_start_thread_knowledge_reaches_the_agent(client, repo, seen):
     assert req.toolbox.read_file("docs/knowledge/domain.md").startswith("REFUSED: knowledge section domain")
 
 
+def test_hints_on_survive_the_start_and_reach_the_agent(client, repo, seen):
+    """0.18.57 the engine's AgentKnowledge model had no `hints` field, so pydantic dropped it at the door: an agent with
+    hints on in the Agents drawer never got the "where to look" list (the RAG evaluation of 0.18.55 found it dead)."""
+    tid = start(client, repo, agents={"explorer": {"knowledge": {"sections": [], "hints": True}}})
+    wait(client, tid)
+    req = next(r for r, _ in seen if r.agent == "explorer")
+    assert req.knowledge["hints"] is True
+
+
 def test_unknown_sections_are_refused_at_start(client, repo):
     body = {"project_id": "demo", "root": str(repo), "workflow": get_template("feature").model_dump(), "title": "x",
             "agents": {"explorer": {"knowledge": {"sections": ["secrets"]}}}}
