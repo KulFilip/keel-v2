@@ -462,6 +462,8 @@ def ladder_optional() -> set[int]:
 
 
 async def project_rules(a: ActionInput) -> ActionResult:
+    """Finds the repo's own rules for coding agents (AGENTS.md, CLAUDE.md, .claude/skills, ...), writes the knowledge
+    page project-rules.md and .keel/project-rules.json (which agents load each skill)."""
     from . import project_rules as rules_mod
 
     return await rules_mod.project_rules(a)
