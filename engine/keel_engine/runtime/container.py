@@ -15,6 +15,8 @@ runs every command through it (`docker compose exec -T app vendor/bin/phpunit`).
     container_commands(root) [(key, cmd, exec)] for the configured commands that do
     preflight_commands(root) [(what, cmd, folder)] the preflight runs (configured, else derived)
     worktree_fit(root)       {ok, reason, service}: can a worktree flow run its tests?
+    exec_prefix(service, f)  `docker compose [-f f] exec -T <service>`, the prefix init writes for a compose service
+    wrap(cmds, prefix)       the backend commands (WRAP_KEYS) not in a container yet, run through the prefix
 """
 
 from __future__ import annotations
@@ -40,6 +42,25 @@ COMPOSE_FILES = ("compose.yaml", "compose.yml", "docker-compose.yaml", "docker-c
 # the configured commands whose container tells where the project's tests and tools run, most telling first
 TEST_KEYS = ("api_test_module", "unit_tests", "web_test_module", "api_test_ac", "web_test_ac", "api_test_paths",
              "web_test_paths", "deps_api", "deps_web", "api_compile", "web_typecheck")
+
+
+# the backend commands that run with the project's toolchain: init runs them in the compose service the person chose
+WRAP_KEYS = ("api_test_module", "api_test_ac", "api_test_pkg", "api_test_paths", "unit_tests", "deps_api", "api_compile",
+             "static_checks", "coverage_api", "migrate", "testcontainers_test")
+DEFAULT_COMPOSE = ("compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml")
+
+
+def exec_prefix(service: str, compose_file: str | None = None) -> str:
+    """`docker compose exec -T app`: -T so it runs without a terminal (keel's commands have none); `-f <file>` when the
+    compose file is not one docker compose finds by itself."""
+    f = f" -f {shlex.quote(compose_file)}" if compose_file and compose_file not in DEFAULT_COMPOSE else ""
+    return f"docker compose{f} exec -T {shlex.quote(service)}"
+
+
+def wrap(cmds: dict, prefix: str) -> dict:
+    """{key: command} of the WRAP_KEYS commands that do not run in a container yet, each run through `prefix`."""
+    return {k: f"{prefix} {cmds[k]}" for k in WRAP_KEYS
+            if isinstance(cmds.get(k), str) and cmds[k].strip() and not exec_of(cmds[k])}
 
 
 def exec_of(cmd: str | None) -> dict | None:
