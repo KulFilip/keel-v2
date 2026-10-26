@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 from conftest import decide, start, to_loop, wait
-from test_flows_a import child, request_of
+from test_flows_a import child, request_of, serves_http
 from test_flows_base import answers, values
 from test_flows_cover_ship import script
 from test_v02 import commit_all, configure, git, log, write
@@ -644,7 +644,7 @@ def test_ready_to_ship_shows_the_state_and_can_show_the_diff_or_stop(client, rep
     assert [c["name"] for c in w["choice_info"] if c["default"]] == ["ship"]
     assert next(c for c in w["choice_info"] if c["name"] == "wrong")["why"] == "required"
     for want in ("## Ready to ship?", "## Checks", "## Still open", "Criteria: 2/2 done", "| Full-diff review | pass at `",
-                 "Security: clean", "| E2E | nothing to do", "| Smoke | nothing to do", "- **ship**: ship it (recommended)"):
+                 "Security: clean", "| E2E | skipped: no frontend, no HTTP server framework", "| Smoke | nothing to do", "- **ship**: ship it (recommended)"):
         assert want in w["detail"], want
     assert values(client, tid)["data"]["full_review"]["verdict"] == "pass"
     s = decide(client, tid, payload={"choice": "diff"})
@@ -667,6 +667,7 @@ def test_ready_to_ship_wrong_starts_an_amendment(client, repo, monkeypatch):
 # ------------------------------------------------------------------ e2e and smoke
 
 def test_e2e_without_a_tool_asks_and_writes_the_specs_unrun(client, repo, monkeypatch):
+    serves_http(repo)
     spec_with(monkeypatch, "- **AC-3** [E2E] Given two players, when the board opens, then both ranks show.")
     seen = by_step(monkeypatch, {})
     tid = start(client, repo)
@@ -684,6 +685,7 @@ def test_e2e_without_a_tool_asks_and_writes_the_specs_unrun(client, repo, monkey
 
 
 def test_e2e_with_a_tool_does_not_ask_and_check_looks_again(client, repo, monkeypatch):
+    serves_http(repo)
     spec_with(monkeypatch, "- **AC-3** [E2E] Given two players, when the board opens, then both ranks show.")
     seen = by_step(monkeypatch, {})
     tid = start(client, repo)

@@ -676,10 +676,14 @@ def write_report(project: str, root: str, run_id: str) -> tuple[str | None, str]
     if waiting:
         return None, (f"{len(waiting)} finding(s) still have no verdict: {', '.join(waiting)}. A report is not a list of "
                       "guesses; every candidate needs a prover's verdict first.")
+    # 0.18.57 B12 a project with no UI and no HTTP layer (a library) has no journey an end-to-end test could drive
+    from .project_shape import ui_or_http
+
+    drivable = ui_or_http(root)[0]
     for c in cands:
         if c["status"] == "proven":
             spec = e2e_coverage(root, c)
-            update_candidate(project, run_id, c["id"], needs_e2e=not spec, e2e_spec=spec)
+            update_candidate(project, run_id, c["id"], needs_e2e=drivable and not spec, e2e_spec=spec)
     d = report_dir(root, run_id)
     if (d / "repro").is_dir():
         shutil.rmtree(d / "repro")

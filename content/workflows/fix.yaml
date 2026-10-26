@@ -206,6 +206,7 @@ steps:
     after_rounds: reset
 
   # ---- 6. Regression e2e, when the plan (or the request) says it is needed ----------------------------------------
+  # In a project with no UI and no HTTP layer (a library) every e2e-phase step is skipped with a note, in any flow.
 
   - id: e2e_needed
     kind: branch
