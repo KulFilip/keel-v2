@@ -76,12 +76,12 @@ describe("the Git plugin's web part", () => {
         (c) => c.id === "git",
       ),
     ).toMatchObject({ kind: "keel-git" });
-    // the GitHub token and the branch tab stay keel's core
+    // the GitHub token and the branch tab stay keel's core (keel 0.18.57: GitHub first in Settings › Connections)
     expect(
       slotItems<{ id: string; order?: number }>(SLOTS.connectionsKind).find(
         (k) => k.id === "github",
       ),
-    ).toMatchObject({ order: 20 });
+    ).toMatchObject({ order: 5 });
     expect(slotItems<{ id: string }>(SLOTS.codeTab).map((t) => t.id)).toContain(
       "branch",
     );
