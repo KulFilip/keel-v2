@@ -172,3 +172,77 @@ def test_in_a_small_flow_a_refactor_criterion_skips_the_red_agent(client, repo, 
     assert skipped and "AC-1 is a refactor: no new test" in skipped[0]["data"]["note"]
     impl = [r for r in seen if r.agent == "implementer" and r.phase == "green"]
     assert impl and "AC-1 is a refactor" in impl[0].prompt
+
+
+# ------------------------------------------------------------------ item 4: the guard keeps putting a named file back
+
+FROZEN_PLAN = "Plan: one helper.\n- **AC-1** [API] tests/test_scores.py builds its fixtures through one helper\n"
+
+
+def guard_loop_flow(client, repo, monkeypatch, green):
+    """A small flow whose AC-1 needs tests/test_scores.py changed: its check passes only once that file holds the helper."""
+    real = actions.run_action
+
+    async def run_action(action, a):
+        if action == "verify_green" and (a.ac or {}).get("id") == "AC-1":
+            if "def make_fixtures" not in (Path(a.root) / "tests/test_scores.py").read_text():
+                return ActionResult(False, "AC-1 does not pass yet.", "FAILED tests/test_ac_1.py::test_helper")
+        return await real(action, a)
+    monkeypatch.setattr("keel_engine.runtime.compiler.run_action", run_action)
+    seen = by_step(monkeypatch, {"a short plan": text(FROZEN_PLAN), "green": green})
+    tid = start(client, repo, workflow="small", title="Use a helper for the fixtures")
+    s = wait(client, tid)
+    assert s["waiting"]["step"] == "plan_gate", s
+    return tid, seen, decide(client, tid)
+
+
+def edits_the_test(req, real):
+    return "tests/test_scores.py", "def make_fixtures():\n    return []\n", "GREEN: the helper is in.", {}
+
+
+def test_the_same_file_put_back_twice_asks_to_allow_it_and_allow_runs_the_round_again(client, repo, monkeypatch):
+    tid, seen, s = guard_loop_flow(client, repo, monkeypatch, edits_the_test)
+    w = s["waiting"]
+    assert w["step"] == "verify_green", s
+    assert w["title"] == "keel's rules block `tests/test_scores.py` in green"
+    assert w["choices"] == ["allow", "skip", "stop"]
+    info = {c["name"]: c for c in w["choice_info"]}
+    assert info["allow"]["label"] == "Allow `tests/test_scores.py` in this phase (recommended)" and info["allow"]["default"]
+    assert info["skip"]["label"] == "Skip this criterion" and info["stop"]["label"] == "Stop the flow"
+    assert ("keel's rule for this phase blocks changes to `tests/test_scores.py` (test code is frozen while making tests "
+            "pass); the change needs that file.") in w["detail"]
+    greens = [r for r in seen if r.agent == "implementer" and r.phase == "green"]
+    assert len(greens) == 2                                     # two rounds, no investigator and no stronger model
+    assert not [r for r in seen if r.agent == "investigator"]
+    assert "Heads-up: this criterion names `tests/test_scores.py`" in greens[0].prompt
+    s = decide(client, tid, payload={"choice": "allow"})
+    assert any(u["path"] == "tests/test_scores.py" and u["phase"] == "green" for u in s["unlocks"])
+    greens = [r for r in seen if r.agent == "implementer" and r.phase == "green"]
+    assert len(greens) == 3 and "The person allowed tests/test_scores.py in phase green" in greens[-1].feedback
+    assert "def make_fixtures" in (repo / "tests/test_scores.py").read_text()
+    assert s["waiting"]["step"] == "look", s                   # the green commit carries the allowed test file
+    log = git(repo, "log", "--format=%s", "--name-only")
+    assert "feat(AC-1): tests/test_scores.py builds its fixtures through one helper\n\ntests/test_scores.py" in log
+
+
+def test_an_agent_that_says_frozen_gets_the_gate_after_one_round(client, repo, monkeypatch):
+    said = lambda req, real: (None, "", "setUp() must change and it is frozen here.\nFROZEN: tests/test_scores.py", {})
+    tid, seen, s = guard_loop_flow(client, repo, monkeypatch, said)
+    assert s["waiting"]["step"] == "verify_green" and s["waiting"]["choices"][0] == "allow", s
+    assert len([r for r in seen if r.agent == "implementer" and r.phase == "green"]) == 1
+    s = decide(client, tid, "reject")                           # a plain reject is the way out: stop
+    assert s["status"] == "stopped", s
+
+
+def test_the_heads_up_names_only_frozen_files(tmp_path):
+    root = repo_with(tmp_path, {"tests/Integration/OrderHandlerTest.php": "<?php\n", "src/Orders/OrderHandler.php": "<?php\n"})
+    texts = ["setUp() of OrderHandlerTest.php builds its orders through a helper; src/Orders/OrderHandler.php stays"]
+    frozen = test_scope.frozen_named(str(root), "green", texts, [])
+    assert [f["path"] for f in frozen] == ["tests/Integration/OrderHandlerTest.php"]
+    assert frozen[0]["why"] == "test code is frozen while making tests pass"
+    assert test_scope.frozen_named(str(root), "green", texts, [{"path": "tests/Integration/OrderHandlerTest.php",
+                                                                "phase": "green"}]) == []
+    note = test_scope.frozen_note(frozen, "green")
+    assert note.startswith("Heads-up: this criterion names `tests/Integration/OrderHandlerTest.php`, which keel's rules "
+                           "freeze in phase green (test code is frozen while making tests pass).")
+    assert "`FROZEN: <file>`" in note

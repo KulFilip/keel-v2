@@ -6,7 +6,7 @@ import tempfile
 import time
 import uuid
 
-from . import agent_knowledge, blockers as push_gates, choices as choices_mod, clarify, flow_actions, guard_ctx, markers, memory as memory_mod, prompts, security_actions, spec_check, stacks, tools as tool_runner
+from . import agent_knowledge, blockers as push_gates, choices as choices_mod, clarify, flow_actions, guard_ctx, markers, memory as memory_mod, prompts, security_actions, spec_check, stacks, test_scope, tools as tool_runner
 from .. import addons, agent_names, extensions, models, rules
 from ..models import catalog, usage as provider_usage
 from ..models.base import AgentRequest, AgentResult
@@ -54,7 +54,11 @@ class AgentMixin:
             specs += extensions.server_specs(mine, plugin_key)
         mcp_specs, tools_allow = agent_knowledge.filter_mcp(specs, allow, know)
 
+        refused_paths: list[str] = []      # the guard-loop count (CodeMixin._guard_loop) reads the files refused here
+
         def on_refuse(tool: str, path: str, reason: str, command: str | None = None):
+            if path:
+                refused_paths.append(path)
             data = {"tool": tool, "path": path or "", "reason": reason, "agent": agent, "phase": phase}
             if command:
                 data["command"] = command
@@ -64,6 +68,7 @@ class AgentMixin:
                           ac=(ac or {}).get("id"), ac_layer=(ac or {}).get("layer", "API"), on_refuse=on_refuse,
                           unlocks=state.get("unlocks") or [], agent=agent, knowledge=know,
                           readonly=self._readonly() or item_root)
+        toolbox.refused_paths = refused_paths
         # keel v1's push gate for the agent's own `git push` / `gh pr create` (rules.push_gate)
         toolbox.push_blockers = await asyncio.to_thread(push_gates.for_agents, root, state.get("base_head"), ctx.project_id or None)
         ctx.emit("agent.started", step=step.id, call_id=call_id, data={
@@ -142,6 +147,16 @@ class AgentMixin:
                        + "\n".join(f"- {a['id']} {a.get('title', '')}"
                                    + (" (approved by the run mode; the criterion-reviewer read its test)" if (seen.get(a["id"]) or {}).get("auto")
                                       else " (approved by a person; no per-AC review)") for a in met))
+        if ac and rules.edits_code(phase):
+            # the files this criterion (its plan, the request) names that this phase freezes: said before the agent
+            # starts, so it stops with FROZEN: <file> instead of burning rounds on edits keel puts back
+            data = state.get("data") or {}
+            plan = prompts.plan_row(spec_check.read_spec(root, state.get("spec")), ac["id"]) if state.get("spec") else ""
+            frozen = await asyncio.to_thread(test_scope.frozen_named, root, phase,
+                                             [ac.get("title"), plan, data.get("plan_text"), ctx.request], state.get("unlocks") or [])
+            note = test_scope.frozen_note(frozen, phase)
+            if note:
+                prompt += "\n\n" + note
         asks = prompts.step_asks(step, lambda path: self._seed_value("$" + path, state, item))
         if asks:
             prompt = f"{prompt}\n{asks}"
@@ -555,6 +570,13 @@ class AgentMixin:
         upd["note"] = " · ".join(x for x in [label, *notes[:2], *lane_notes] if x)
         if refused:
             upd["note"] += f" · guard put back {len(refused)} file(s)"
+        # every file keel kept from changing in this step: put back by the diff guard, refused by the ToolBox, or by the
+        # PreToolUse hook of a CLI agent
+        kept = [r["path"] for r in refused] + [p for _res, _m, tb in agent_results for p in getattr(tb, "refused_paths", [])] \
+            + [str(r.get("path")) for res, _m, _tb in agent_results for r in res.data.get("refusals") or [] if r.get("path")]
+        streak = self._guard_streak(step, state, ac, kept, upd)
+        if streak is not None:
+            upd["data"] = streak
         if tools_note:
             upd["note"] += f" · {tools_note}"
         if sections and state.get("acs"):
@@ -610,6 +632,10 @@ class AgentMixin:
                     upd["data"] = {**(upd.get("data") or state.get("data") or {}), "web_to_api": web}
                 upd["acs"] = acs
                 upd["clarify"] = {}
+                # the plan's own words (a small flow keeps its criteria inline, with no spec file): the guard-loop gate
+                # and the frozen-file heads-up look for the files it names
+                plan = "\n".join((res.text or "") for res, _m, _tb in agent_results)[-8000:]
+                upd["data"] = {**(upd.get("data") or state.get("data") or {}), "plan_text": plan}
             elif state.get("clarify_rounds", 0) < clarify.MAX_ROUNDS:
                 # No criteria, but questions: the spec gate shows them as buttons (clarify loop).
                 asked = [q for res, _m, _tb in agent_results for q in clarify.parse_questions(res.text)]
@@ -750,6 +776,29 @@ class AgentMixin:
     def _rounds_key(step: Step, item: dict | None) -> str:
         """Fix rounds count per review step, and per item inside a for_each loop."""
         return f"{step.id}:{item['id']}" if item and step.per_item else step.id
+
+    def _guard_streak(self, step: Step, state: FlowState, ac: dict | None, refused: list[str], upd: dict) -> dict | None:
+        """data.guard_streak[<step>:<ac>] = {paths, count}: the files keel's phase rule put back after this step, and in
+        how many rounds in a row the same ones came back (a file only an unlock would let pass; a secret does not count).
+        The check after the step reads it (CodeMixin._guard_loop): two rounds in a row ask the person. None: no change."""
+        data = dict(upd.get("data") or state.get("data") or {})
+        streaks = dict(data.get("guard_streak") or {})
+        key = f"{step.id}:{(ac or {}).get('id')}"
+        phase = state.get("phase") or "none"
+        cfg = rules.load_config(self.ctx.root) if refused else None
+        root = self.ctx.root
+        rels = {rules._rel(p, root).removeprefix(str(root).rstrip("/") + "/") for p in refused}
+        paths = sorted(p for p in rels if test_scope.unlockable(phase, p, cfg)) if refused else []
+        prev = streaks.get(key) or {}
+        if not paths:
+            if key not in streaks:
+                return None
+            streaks.pop(key)
+        else:
+            same = sorted(set(paths) & set(prev.get("paths") or []))
+            streaks[key] = {"paths": same, "count": int(prev.get("count") or 0) + 1} if same else {"paths": paths, "count": 1}
+        data["guard_streak"] = streaks
+        return data
 
     def _outputs(self, step: Step, state: FlowState, results: list[AgentResult], item_of: dict[int, dict]) -> dict:
         """What a step's answers put into the state: per-item results (fan-out), markers, a collected list."""
