@@ -15,7 +15,13 @@ import java.util.UUID
 data class KeelDoc(val path: String, val what: String, val by: String, val updated: String?, val status: String)
 data class Fact(val id: String, val title: String, val text: String, val kind: String, val source: String, val at: String)
 data class KnowledgeSection(val id: String, val status: String, val words: Int, val cites: Int)
-data class Memory(val facts: List<Fact>, val knowledge: List<KnowledgeSection>)
+/**
+ * 0.18.57 the project notes' switch (`knowledge.build` in .keel/config.yml; the engine's runtime/knowledge.py enabled):
+ * on = keel's agents get the knowledge paths and its flows keep the notes up to date. setting is what the config says
+ * ("on" | "off", null when it says nothing: then on only for a project that has notes or chose sections at init).
+ */
+data class Notes(val on: Boolean, val setting: String?, val written: Int)
+data class Memory(val facts: List<Fact>, val knowledge: List<KnowledgeSection>, val notes: Notes? = null)
 
 /** keel docs and memory (facts + knowledge base) of a project. The Wiki page reads the knowledge base from here (the
  *  Wiki plugin, plugins/wiki); the code graph is the Graph plugin's (plugins/graph). */
@@ -90,7 +96,22 @@ class KnowledgeService(
 
     fun memory(pid: String): Memory {
         val root = projects.root(pid)
-        return Memory(facts(pid), knowledge(root))
+        val sections = knowledge(root)
+        return Memory(facts(pid), sections, notes(root, sections))
+    }
+
+    /** 0.18.57 are the project notes on (the same rule as the engine's knowledge.enabled)? */
+    fun notes(root: Path, sections: List<KnowledgeSection> = knowledge(root)): Notes {
+        val cfg = Layout.rawConfig(root)
+        val raw = (cfg["knowledge"] as? Map<*, *>)?.get("build")
+        val said = when {
+            raw == true || raw?.toString()?.trim()?.lowercase() in setOf("on", "true", "yes") -> "on"
+            raw == false || raw?.toString()?.trim()?.lowercase() in setOf("off", "false", "no") -> "off"
+            else -> null
+        }
+        val written = sections.count { it.status != "missing" && it.id in SECTIONS }
+        val chosen = ((cfg["init"] as? Map<*, *>)?.get("knowledge_sections") as? List<*>).orEmpty()
+        return Notes(if (said != null) said == "on" else written > 0 || chosen.isNotEmpty(), said, written)
     }
 
     fun facts(pid: String): List<Fact> =

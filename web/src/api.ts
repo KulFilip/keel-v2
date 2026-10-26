@@ -399,9 +399,13 @@ export type Unlock = { path: string; phase: string };
 export type KeelDoc = { path: string; what: string; by: string; updated: string; status: "ok" | "live" | "check" };
 export type FactKind = "fact" | "rule" | "flaky" | "unlock";
 export type Fact = { id: string; title: string; text: string; kind: FactKind; source: string; at: string };
+/** 0.18.57 the project notes' switch (knowledge.build in .keel/config.yml): on = the agents get them and the flows keep
+ *  them up to date; setting = what the config says (null: nothing, then on only for a project that has notes). */
+export type Notes = { on: boolean; setting: "on" | "off" | null; written: number };
 export type Memory = {
   facts: Fact[];
   knowledge: { id: string; status: "written" | "stale" | "missing"; words: number; cites: number }[];
+  notes?: Notes | null;
 };
 
 // keel v1 .keel/map.json (lib/map.js). Only the parts the Map page draws are typed.
@@ -483,6 +487,8 @@ export type WikiTree = {
   notice?: string | null;
   /** v0.15.8 where keel keeps the project's files: repo | keel | external */
   layout?: string | null;
+  /** 0.18.57 the project notes' switch: off, the menu says so with Build them */
+  notes?: Notes | null;
 };
 export type WikiPage = { id: string; title: string; markdown: string; meta: Record<string, unknown> };
 /** 0.17.3 a spec's build status (the Wiki plugin's GET /projects/{pid}/specs/status). */

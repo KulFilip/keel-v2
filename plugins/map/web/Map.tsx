@@ -6,9 +6,9 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  Async, BoxDiagram, EmptyState, ErDiagram, PageHead, Panel, SLOTS, Tabs, clock, errorParts, get, moduleBoxes, post,
+  Async, BoxDiagram, EmptyState, ErDiagram, PageHead, Panel, ProjectNotesOff, SLOTS, Tabs, clock, errorParts, get, moduleBoxes, post,
   schemaOf, systemBoxes, useApp, useLoad, usePages, useRoute, useSlot,
-  type GBox, type KeelMap, type MapErQueryItem, type MapLevel, type MapNode, type MapResponse,
+  type GBox, type KeelMap, type MapErQueryItem, type MapLevel, type MapNode, type MapResponse, type Memory,
 } from "@keel/web-sdk";
 
 type LevelId = "system" | "flow" | "modules" | "classes" | "er";
@@ -120,6 +120,9 @@ function ErPanels({ pid }: { pid: string }) {
 function MapView({ m, onRebuild, busy, pid }: { m: KeelMap; onRebuild: () => void; busy: boolean; pid: string }) {
   const { project } = useApp();
   const wiki = usePages().some((p) => p.id === "wiki");
+  // 0.18.57 the project notes are opt-in: the journeys come from them, so while they are off the tab says so
+  const memory = useLoad(`memory:${pid}`, () => get<Memory>(`/projects/${encodeURIComponent(pid)}/memory`), { live: false });
+  const notes = memory.data?.notes ?? null;
   const { arg } = useRoute();
   const schema = useMemo(() => schemaOf(m), [m]);
   const [tab, setTabState] = useState<LevelId>(() => {
@@ -179,7 +182,9 @@ function MapView({ m, onRebuild, busy, pid }: { m: KeelMap; onRebuild: () => voi
       : m.levels.classes?.byModule?.[mod];
     body = (
       <Panel>
-        {level ? <LevelSvg level={level} label={`${LEVELS.find(([k]) => k === tab)?.[1]} map of ${name}`} /> : (
+        {level ? <LevelSvg level={level} label={`${LEVELS.find(([k]) => k === tab)?.[1]} map of ${name}`} /> : tab === "flow" && notes && !notes.on ? (
+          <ProjectNotesOff pid={pid} notes={notes} onChange={() => void memory.reload()} />
+        ) : (
           <EmptyState title="Nothing to draw here" action={tab === "flow" && wiki ? <a className="btn" href="#/wiki">Open the wiki</a> : undefined}>
             {tab === "flow" ? `The knowledge base of ${name} has no journeys section yet. The init flow writes it.` : `keel found no source for this level in ${name}.`}
           </EmptyState>

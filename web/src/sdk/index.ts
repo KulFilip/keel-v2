@@ -29,6 +29,7 @@ export type {
   MapNode,
   MapResponse,
   McpServer,
+  Notes,
   ProjectSettings,
   RunMode,
   Step,
@@ -94,6 +95,8 @@ export {
   useNarrow,
 } from "../components/page";
 export { Markdown } from "../components/Markdown";
+// 0.18.57 the project notes are opt-in: "Project notes are off — Build them" (Wiki, Map)
+export { NOTE_SECTIONS, ProjectNotesOff, notesCostLabel, setNotes } from "../components/ProjectNotes";
 // a code block with keel's highlighting (the Database plugin's KeelBot card shows its SQL with it)
 export { CodeBlock } from "../components/Code";
 // keel 0.18.9 a failed button's "Ask KeelBot to fix it" (KeelBot's chat provides AskKeelBot)

@@ -761,8 +761,10 @@ class FlowService(
         enabled.forEach { models[it.id] = it.model }
         // What each agent reads of the knowledge base it is given (counted for agents with no history yet).
         val knowledge = enabled.filter { it.knowledgeTokens > 0 }.associate { it.id to it.knowledgeTokens }
+        // 0.18.57 the project folder: building the project notes (knowledge-refresh) counts what the librarians read
+        val root = runCatching { projects.root(pid).toString() }.getOrNull()
         return engine.estimate(mapOf("yaml" to yaml, "acs" to acs.coerceIn(0, 50), "history" to history, "models" to models,
-            "knowledge_tokens" to knowledge))
+            "knowledge_tokens" to knowledge, "root" to root))
     }
 
     // ---- unlocks ----------------------------------------------------------------------------

@@ -297,6 +297,20 @@ describe("Map › Journeys without a journeys section", () => {
     expect(screen.getByRole("link", { name: "Open the wiki" })).toHaveAttribute("href", "#/wiki");
   });
 
+  // 0.18.57 the project notes are opt-in: while they are off the tab says so, with Build them
+  it("with the project notes off: Project notes are off, Build them", async () => {
+    server.use(http.get("/api/projects/:pid/memory", () =>
+      HttpResponse.json({ facts: [], knowledge: [], notes: { on: false, setting: null, written: 0 } })));
+    localStorage.setItem("keel2.project", "ludus-engine");
+    localStorage.setItem("keel2.map.ludus-engine.tab", "flow");
+    location.hash = "#/map";
+    render(<App />);
+    const banner = await screen.findByTestId("notes-off");
+    expect(banner).toHaveTextContent("Project notes are off");
+    expect(within(banner).getByRole("button", { name: /^Build them/ })).toBeInTheDocument();
+    expect(screen.queryByText(/has no journeys section yet/)).toBeNull();
+  });
+
   it("without the Wiki: the same words, no link", async () => {
     withoutPages("wiki");
     await journeys();

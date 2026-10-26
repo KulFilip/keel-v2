@@ -35,7 +35,9 @@ data class WikiItem(
 )
 data class WikiSection(val id: String, val title: String, val items: List<WikiItem>)
 /** notice: a problem with where keel's files are (an external layout whose folder keel cannot see); layout: its name. */
-data class Wiki(val sections: List<WikiSection>, val notice: String? = null, val layout: String? = null)
+/** notes: 0.18.57 the project notes' switch (KnowledgeService.notes): off, the menu says so with Build them. */
+data class Wiki(val sections: List<WikiSection>, val notice: String? = null, val layout: String? = null,
+                val notes: keel.api.knowledge.Notes? = null)
 data class WikiPage(val id: String, val title: String, val markdown: String, val meta: Map<String, Any?>)
 
 /**
@@ -88,6 +90,7 @@ class WikiService(
             ),
             lay.missing,
             lay.name,
+            knowledge.notes(root, sections),
         )
     }
 
@@ -113,7 +116,13 @@ class WikiService(
                 val f = root.resolve(rel)
                 val section = knowledge.knowledge(root).firstOrNull { it.id == name }
                 if (!regular(f)) {
-                    WikiPage(id, humanize(name), "This section is not written yet. Run the init flow, or ask the librarian to write it.", mapOf("status" to "missing"))
+                    // 0.18.57 the project notes are opt-in: off, the page says so instead of "not written yet"
+                    if (!knowledge.notes(root).on) {
+                        WikiPage(id, humanize(name), "Project notes are off. keel's agents read the code itself. Build them " +
+                            "with **Build them** in the Wiki's menu (the knowledge-refresh flow); that turns them on.", mapOf("status" to "off"))
+                    } else {
+                        WikiPage(id, humanize(name), "This section is not written yet. Run the init flow, or ask the librarian to write it.", mapOf("status" to "missing"))
+                    }
                 } else {
                     WikiPage(id, title(f), Files.readString(f), mapOf(
                         "path" to rel, "status" to section?.status, "words" to section?.words,

@@ -13,9 +13,9 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import {
-  Async, DocHistoryPanel, EmptyState, ErrorBox, Loading, Markdown, PageHead, Pill, RefreshStaleButton, ResumeRow, Skeleton,
-  StartFlowDrawer, StepInfoDrawer,
-  agoText, errorParts, get, go, hashForScreen, kfmt, plural, post, readStored, scrollToCenter, tokensByStep, useApp, useLoad,
+  Async, DocHistoryPanel, EmptyState, ErrorBox, Loading, Markdown, PageHead, Pill, ProjectNotesOff, RefreshStaleButton, ResumeRow,
+  Skeleton, StartFlowDrawer, StepInfoDrawer,
+  agoText, errorParts, get, go, hashForScreen, kfmt, plural, post, readStored, scrollToCenter, setNotes, tokensByStep, useApp, useLoad,
   useNarrow, useRoute, writeStored,
   type Estimate, type PillTone, type SpecState, type SpecStatus, type ThreadState, type WikiPage as WikiPageData, type WikiTree,
   type Workflow,
@@ -54,6 +54,7 @@ const wikiApi = {
 
 const STATUS: Record<string, ["ok" | "run" | "warn" | "idle", string]> = {
   written: ["ok", "written"], ok: ["ok", "written"], writing: ["run", "writing"], stale: ["warn", "stale"], missing: ["idle", "not written"],
+  off: ["idle", "notes off"],
 };
 
 /** A spec's state in words and as a pill tone. */
@@ -122,6 +123,8 @@ type MenuProps = {
   groups: NavGroup[]; shown: NavGroup[]; cur: string; q: string; recent: string[];
   isOpen: (id: string, byDefault: boolean) => boolean; toggle: (id: string, byDefault?: boolean) => void;
   onClear: () => void; prefix: string; onPick?: () => void;
+  /** 0.18.57 the project notes are off: no "not written" row with Write them (the banner offers Build them) */
+  notesOff?: boolean;
 };
 
 /** The text with each search word marked. */
@@ -175,6 +178,36 @@ function MenuLink({ item, cur, words, onPick, current = true }: {
   );
 }
 
+/** 0.18.57 "Turn notes off": keel's agents stop getting the project notes and the flows stop updating them (the notes
+ *  stay on disk; the banner then offers Turn on). */
+function NotesOffButton({ pid, onDone }: { pid: string; onDone: () => void }) {
+  const { toast } = useApp();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const run = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await setNotes(pid, false);
+      toast("Project notes are off: keel's agents read the code itself, and the flows no longer update the notes.");
+      onDone();
+    } catch (e) {
+      setErr(errorParts(e).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <button type="button" className="btn" onClick={() => void run()} disabled={busy}
+        title="keel's agents stop getting the project notes; ship stops updating them. The notes stay where they are.">
+        {busy ? "Turning off…" : "Turn notes off"}
+      </button>
+      {err && <span className="wt-err" role="alert">{err}</span>}
+    </>
+  );
+}
+
 /** "Write them": the librarians write the knowledge sections that are not written yet (the knowledge-refresh flow). */
 function WriteMissing({ pid, ids }: { pid: string; ids: string[] }) {
   const { toast } = useApp();
@@ -212,6 +245,7 @@ function WriteMissing({ pid, ids }: { pid: string; ids: string[] }) {
  *  yet, with "Write them"). It is open while searching and when it has the open page. */
 function Part({ g, p, menu, words, current }: { g: NavGroup; p: NavPart; menu: MenuProps; words: string[]; current: boolean }) {
   const { cur, isOpen, toggle, onPick, prefix, pid } = menu;
+  if (p.fold === "missing" && menu.notesOff) return null;
   const links = p.items.map((i) => <MenuLink key={i.id} item={i} cur={cur} words={words} onPick={onPick} current={current} />);
   if (!p.fold) {
     return (
@@ -551,20 +585,26 @@ export function WikiPage({ pid }: { pid: string }) {
     setQ("");
     box.current?.focus();
   };
+  const notes = tree.data?.notes ?? null;
+  const notesOff = !!notes && !notes.on;
   const stale = groups.flatMap(groupItems).filter((i) => i.status === "stale" && i.id.startsWith("kb:")).map((i) => i.id.slice(3));
   const place = placeOf(groups, cur);
   return (
     <>
       <PageHead title="Wiki"
         sub={`What keel knows about ${project?.name ?? pid}: an overview, the knowledge base the librarians write, the specs by build status, the decisions and a page for every workflow.`}
-        actions={<RefreshStaleButton pid={pid} sections={stale} className="btn" />} />
+        actions={notesOff ? undefined : <>
+          <RefreshStaleButton pid={pid} sections={stale} className="btn" />
+          {notes?.on && <NotesOffButton pid={pid} onDone={() => void tree.reload()} />}
+        </>} />
       {tree.data?.notice && <div className="errbox" role="alert" style={{ marginBottom: 16 }}><b>keel cannot see this project's own files:</b> {tree.data.notice}</div>}
+      {notesOff && <ProjectNotesOff pid={pid} notes={notes} onChange={() => void tree.reload()} />}
       {tree.data?.layout === "repo" && <p className="hint">keel keeps this project's files in <span className="mono">docs/</span> (layout repo), committed with your code. New projects use <span className="mono">.keel/</span>.</p>}
       {tree.error ? <ErrorBox error={tree.error} onRetry={() => void tree.reload()} /> : !tree.data ? <div className="panel"><Skeleton lines={6} label="Loading the wiki" /></div> : (() => {
         if (!groups.length) {
           return <div className="panel"><EmptyState title="The wiki is empty" action={<a className="btn" href="#/flow">Open Flow</a>}>The init flow writes the knowledge base, and every workflow gets a page here. Start init from the Flow page.</EmptyState></div>;
         }
-        const menu = { pid, groups, shown, cur, q, recent, isOpen, toggle, onClear: clear };
+        const menu = { pid, groups, shown, cur, q, recent, isOpen, toggle, onClear: clear, notesOff };
         return (
           <div className="wiki-grid">
             <div className="wk-side">
