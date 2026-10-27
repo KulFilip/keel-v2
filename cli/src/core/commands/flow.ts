@@ -150,7 +150,8 @@ const BACK = "\u0000back";
  *  check of every answer ("Send these answers?", change one) before `send` gets them. */
 export function questionChain(qs: Question[], send: (answers: Answers) => Promise<Reply> | Reply, k = 0, answers: Answers = {},
   onlyOne = false): Promise<Reply> | Reply {
-  if (k >= qs.length) return reviewAnswers(qs, send, answers);
+  // 0.18.61 one question: its answer goes at once; the "Send these answers?" check is for several
+  if (k >= qs.length) return qs.length === 1 ? send(answers) : reviewAnswers(qs, send, answers);
   const q = qs[k];
   const opts = [...q.options].sort((a, b) => Number(!!b.recommended) - Number(!!a.recommended));
   // one answer changed from the check: straight back to it; else the next question

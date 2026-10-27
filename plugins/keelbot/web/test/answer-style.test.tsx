@@ -267,9 +267,24 @@ describe("KeelBot's next steps", () => {
       </AskKeelBot.Provider>,
     );
     expect(screen.queryByRole("region", { name: "Next steps" })).toBeNull();
-    expect(
-      screen.getByRole("button", { name: "Send my answers" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
+  });
+
+  it("0.18.61 one question with one answer: a click on an option sends it, no Send step", () => {
+    const ask = vi.fn();
+    render(
+      <AskKeelBot.Provider value={ask}>
+        <QuestionsCard body={NEXT.replace('"next"', '"how"')} />
+      </AskKeelBot.Provider>,
+    );
+    fireEvent.click(screen.getByRole("radio", { name: /Run EXPLAIN/ }));
+    expect(ask).toHaveBeenCalledTimes(1);
+    expect(ask).toHaveBeenCalledWith(
+      "Answers to your questions:\n1. What next?\n   → Run EXPLAIN",
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Your answers went to KeelBot:",
+    );
   });
 });
 

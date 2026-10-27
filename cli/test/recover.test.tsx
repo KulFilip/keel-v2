@@ -192,9 +192,7 @@ describe("KeelBot's question card after a failure", () => {
       ),
     ).toBeLessThan(f.indexOf("Commit them first"));
     expect(f).toContain("Other… (my own words)");
-    await t.key("\r"); // the recommended one
-    await waitFor(() => t.frame().includes("Send these answers?"));
-    await t.key("\r"); // Send them
+    await t.key("\r"); // the recommended one: one question, so it goes at once (0.18.61, no "Send these answers?")
     await waitFor(
       () =>
         t.stub.calls.filter(

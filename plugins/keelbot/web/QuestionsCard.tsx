@@ -7,7 +7,9 @@ import { answersMessage, answersOf, AskKeelBot, ClarifyForm, parseQuestions, rea
  *  your own words, how many are answered); Send gives the answers to KeelBot as the next message.
  *  keel 0.18.13 `answered`: the chat's later message with the answers (it starts with "Answers to your questions"): the
  *  card shows what was sent, read only, also after a reload (derived from the chat, nothing stored).
- *  0.18.38 one question with the id "next" is KeelBot's next steps: buttons, not a form. */
+ *  0.18.38 one question with the id "next" is KeelBot's next steps: buttons, not a form.
+ *  0.18.61 one question that takes one answer: a click on an option sends it, no "Send my answers" step (your own
+ *  words still wait for Send). Several questions keep the Send step. */
 export function QuestionsCard({ body, answered }: { body: string; answered?: string | null }) {
   const qs = parseQuestions(body);
   const ask = useContext(AskKeelBot);
@@ -15,10 +17,17 @@ export function QuestionsCard({ body, answered }: { body: string; answered?: str
   const [typed, setTyped] = useState<ClarifyAnswers>({});
   const [sent, setSent] = useState<string | null>(null);
   if (!qs.length) return <p className="kb-card bad" role="note">KeelBot's questions could not be read. Ask it to ask again.</p>;
-  const send = () => {
-    const text = answersMessage(qs, answersOf(qs, picked, typed));
+  const send = (p: ClarifyAnswers = picked, t: ClarifyAnswers = typed) => {
+    const text = answersMessage(qs, answersOf(qs, p, t));
     ask?.(text);
     setSent(text);
+  };
+  const one = qs.length === 1 && !qs[0].multiple;
+  const onPick = (id: string, value: string | string[]) => {
+    const next = { ...picked, [id]: value };
+    setPicked(next);
+    // the option, not words typed before it (the form clears them, but this render still has them)
+    if (one && ask && typeof value === "string") send(next, { ...typed, [id]: "" });
   };
   const said = readAnswersMessage(answered ?? sent ?? "");
   const q = qs[0];
@@ -56,8 +65,8 @@ export function QuestionsCard({ body, answered }: { body: string; answered?: str
       ) : (
         <>
           <ClarifyForm questions={qs} picked={picked} typed={typed}
-            onPick={(id, value) => setPicked((p) => ({ ...p, [id]: value }))} onType={(id, text) => setTyped((p) => ({ ...p, [id]: text }))} />
-          <div className="row"><button type="button" className="btn sm primary" disabled={!ask} onClick={send}>Send my answers</button></div>
+            onPick={onPick} onType={(id, text) => setTyped((p) => ({ ...p, [id]: text }))} />
+          <div className="row"><button type="button" className="btn sm primary" disabled={!ask} onClick={() => send()}>{one ? "Send" : "Send my answers"}</button></div>
         </>
       )}
     </section>
