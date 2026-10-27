@@ -239,7 +239,8 @@ export const AGENTS_IMPLS: Impl[] = [
         chat: fixRequest(a.trim() ? `what the person describes: ${a.trim()}` : "the last thing keel TUI did", { message: last ?? a.trim() }) };
     },
   },
-  { name: "new", run: (ctx) => { ctx.core.newChat(); return ok("New chat: the next message starts it."); } },
+  // 0.18.62 a new chat starts on a clean screen with keel's start, like /clear
+  { name: "new", run: (ctx) => { ctx.core.newChat(); return { ...ok("New chat: the next message starts it."), clear: true }; } },
   {
     name: "mode",
     complete: (_c, a) => ["ask", "edit", "fix", "side"].filter((x) => x.startsWith(a)),

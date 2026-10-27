@@ -229,13 +229,15 @@ function Main({ core, probe, width: fixedWidth, profiler, rows: fixedRows, mouse
   if (probe) Object.assign(probe, { started, busy: running !== null, pick: !!pending?.pick, ask: !!pending?.ask, chatBusy: snap.chat.busy, answers });
 
   const handle = useCallback(async (reply: Reply, cmd: string) => {
-    push(...reply.blocks);
+    if (!reply.clear) push(...reply.blocks);
     if (reply.follow) setPanels((ps) => [...ps.filter((x) => !x.startsWith("job:")), `job:${reply.follow}` as PanelId]);
     if (reply.panel) setPanels((ps) => (reply.panel === "off" ? [] : ps.includes(reply.panel as PanelId) ? ps : [...ps, reply.panel as PanelId]));
     if (reply.clear) {
       // a clean screen that still starts with keel's name, the project and what waits
       if (!screen) stdout?.write("\x1b[2J\x1b[3J\x1b[H");
-      setItems([{ id: nextId.current++, kind: "start", s: core.snapshot }]);
+      // /new: its words show under the start (0.18.62)
+      setItems([{ id: nextId.current++, kind: "start", s: core.snapshot },
+        ...reply.blocks.map((b) => ({ id: nextId.current++, kind: "block" as const, b, gap: false }))]);
       setOffset(0);
       setSel(null);
       setEpoch((e) => e + 1);

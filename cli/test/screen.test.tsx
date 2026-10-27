@@ -125,6 +125,17 @@ describe("the full screen", () => {
     expect(t.lines().join("\n")).toContain("the mouse is the terminal's again");
     expect(t.r.stdout.frames.join("")).toContain("\x1b[?1000l");
   });
+
+  it("/new starts a new chat on a clean screen: keel's start again, then what /new did", async () => {
+    const t = setup();
+    await waitFor(() => t.probe.started);
+    await t.run("/help");
+    await t.run("/new");
+    const s = t.lines().join("\n");
+    expect(s).toContain("Ask KeelBot anything");
+    expect(s).not.toContain("Type a question for KeelBot");
+    expect(s).toContain("New chat: the next message starts it.");
+  });
 });
 
 describe("painting a frame (no flashing)", () => {
