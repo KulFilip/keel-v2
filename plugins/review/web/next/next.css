@@ -429,6 +429,7 @@
   background: var(--bg);
 }
 .rvn-review-in {
+  container: rvn-review / inline-size;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -722,18 +723,36 @@
 }
 
 /* files */
+/* 0.18.59 two columns side by side at every width the Code page gives: with flex-wrap, a panel narrower than
+   260 + 360 px put the file's changes under the whole file list, out of sight. The list keeps its own scroll. */
 .rvn-files {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(140px, 240px) minmax(0, 1fr);
   gap: 12px;
-  align-items: flex-start;
+  align-items: start;
 }
 .rvn-flist-w {
-  flex: 1 1 200px;
-  max-width: 260px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  position: sticky;
+  top: 0;
+  max-height: calc(100dvh - 120px);
+}
+.rvn-flist-w .rvn-flist {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+@container rvn-review (max-width: 420px) {
+  .rvn-files {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .rvn-flist-w {
+    position: static;
+    max-height: 30dvh;
+  }
 }
 .rvn-flist-h {
   margin: 0;
@@ -793,7 +812,6 @@
   cursor: pointer;
 }
 .rvn-diff {
-  flex: 999 1 360px;
   min-width: 0;
   border: 1px solid var(--border);
   border-radius: 12px;
