@@ -64,6 +64,34 @@ describe("KeelBot's plugin buttons in keel TUI", () => {
     t.r.unmount();
   });
 
+  it("a start refused because main went its own way: start on the current branch, in the terminal", async () => {
+    const t = setup();
+    t.stub.state.diverged = true;
+    await waitFor(() => t.probe.started);
+    await t.run("start clarify");
+    await waitFor(() => t.probe.chatBusy);
+    t.stub.answer('Here:\n```keel-start\n{"workflow": "feature", "title": "Provider connector"}\n```');
+    t.finished();
+    await waitFor(() => t.probe.pick);
+    await tick(80);
+    await t.key("\r");                                                  // Yes
+    await waitFor(() => t.frame().includes("It did not work. Find a fix?"));
+    expect(t.frame()).toContain("went their own ways");
+    expect(t.frame()).toContain("Start on the current branch");
+    await tick(80);
+    await t.key("\r");                                                  // start on the current branch
+    await waitFor(() => t.frame().includes('started feature "Provider connector"'));
+    expect(t.stub.calls.filter((c) => c.path === "/api/projects/demo/flows" && c.method === "POST").map((c) => (c.body as { branch?: string }).branch))
+      .toEqual([undefined, "continue"]);
+    t.r.unmount();
+  });
+
+  it("KeelBot's start button may carry the branch the person chose", () => {
+    const b = splitButtons('```keel-start\n{"workflow": "feature", "title": "x", "branch": "continue"}\n```').buttons;
+    expect(b).toEqual([{ kind: "start", workflow: "feature", title: "x", request: undefined, branch: "continue" }]);
+    expect(question(b[0], (s) => s)).toBe('KeelBot suggests: start feature "x" on the current branch?');
+  });
+
   it("or KeelBot finds the fix; and /fix hands the last error to it any time", async () => {
     const t = setup();
     await waitFor(() => t.probe.started);

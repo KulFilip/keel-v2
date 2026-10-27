@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { questionChain } from "../../core/commands";
-import { answersMessage, blockedByChanges, buttonWords, elsewhere, NOT_SENT_NEW_MESSAGE, prepare, pressButton, type Button } from "../../core/buttons";
+import { answersMessage, blockedByChanges, divergedBase, buttonWords, elsewhere, NOT_SENT_NEW_MESSAGE, prepare, pressButton, type Button } from "../../core/buttons";
 import { fixRequest } from "../../../../web/src/askFix";
 import { errorParts } from "../../core/sdk";
 import { api } from "../../core/sdk";
@@ -20,11 +20,22 @@ export function useButtonAsks(core: KeelCore, push: (...bs: Block[]) => void) {
     title: "It did not work. Find a fix?",
     choices: [
       ...(blockedByChanges(b, err.message) ? [{ label: "Stash my changes and switch", value: "stash", hint: "git stash pop on your branch brings them back" }] : []),
+      ...(divergedBase(b, err.message) ? [{ label: "Start on the current branch", value: "continue", hint: "the flow works on the branch the folder is on; main stays as it is" }] : []),
       { label: "Ask KeelBot to find a fix", value: "ask", hint: "it reads the error and the project, and proposes a fix you press" },
       { label: "No", value: "no" },
     ],
     then: async (v) => {
       if (v === "ask") return { blocks: [], chat: fixRequest(buttonWords(b), err) };
+      if (v === "continue" && b.kind === "start") {
+        try {
+          const said = await pressButton({ ...b, branch: "continue" }, pid, name);
+          await core.refresh().catch(() => undefined);
+          return { blocks: [{ kind: "ok", text: said }] };
+        } catch (e) {
+          const again = errorParts(e);
+          return { blocks: [{ kind: "error", text: again.message }], pick: fixPick({ ...b, branch: "continue" }, again, pid, name) };
+        }
+      }
       if (v === "stash" && b.kind === "git") {
         try {
           const said = await pressButton({ ...b, stash: true }, pid, name);

@@ -181,6 +181,8 @@ export const kb = {
       allow_dirty?: boolean;
       /** 0.18.28 the run mode KeelBot's start button carries */
       run_mode?: "manual" | "important" | "auto" | "readonly";
+      /** 0.18.62 continue: stay on the branch the project folder is on */
+      branch?: "continue";
     },
   ) => post<ThreadState>(`/projects/${e(pid)}/flows`, body),
 

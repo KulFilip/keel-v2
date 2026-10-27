@@ -46,7 +46,7 @@ export type NewAgent = { name: string; about?: string; prompt: string; tools?: s
 export const AGENT_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write", "Bash"];
 
 export type Button =
-  | { kind: "start"; workflow: string; title: string; request?: string; mode?: RunMode }
+  | { kind: "start"; workflow: string; title: string; request?: string; mode?: RunMode; branch?: "continue" }
   | { kind: "decide"; decision: "approve" | "reject"; flow: string; why?: string }
   | { kind: "answer"; flow: string; answers?: Answers; choice?: string; why?: string }
   | { kind: "stop"; flows: string[] }
@@ -133,7 +133,8 @@ export function toButton(kind: string, body: string): Button | null {
   const v = json(body);
   if (!v) return null;
   if (kind === "start") return str(v.workflow) ? { kind: "start", workflow: str(v.workflow), title: str(v.title), request: str(v.request) || undefined,
-    ...(RUN_MODES.includes(str(v.mode) as RunMode) ? { mode: str(v.mode) as RunMode } : {}) } : null;
+    ...(RUN_MODES.includes(str(v.mode) as RunMode) ? { mode: str(v.mode) as RunMode } : {}),
+    ...(str(v.branch) === "continue" ? { branch: "continue" as const } : {}) } : null;
   const what = str(v.do);
   if (what === "approve" || what === "reject") return str(v.flow) ? { kind: "decide", decision: what, flow: str(v.flow), why: str(v.why) || undefined } : null;
   if (what === "answer") {
@@ -205,7 +206,7 @@ export type Names = (tid: string) => string;
 /** The question a button asks before anything happens; null for buttons only the dashboard has. */
 export function question(b: Button, name: Names): string | null {
   switch (b.kind) {
-    case "start": return `KeelBot suggests: start ${b.workflow}${b.title ? ` "${b.title}"` : ""}${b.mode ? ` in ${b.mode} mode` : ""}?`;
+    case "start": return `KeelBot suggests: start ${b.workflow}${b.title ? ` "${b.title}"` : ""}${b.mode ? ` in ${b.mode} mode` : ""}${b.branch ? " on the current branch" : ""}?`;
     case "decide": return `KeelBot suggests: ${b.decision} the gate of ${name(b.flow)}${b.why ? ` (${b.why})` : ""}?`;
     case "answer": return `KeelBot suggests: answer ${name(b.flow)} with ${answerText(b)}${b.why ? ` (${b.why})` : ""}?`;
     case "stop": return b.flows.length === 1 ? `KeelBot suggests: stop ${name(b.flows[0])}?` : `KeelBot suggests: stop ${b.flows.length} flows (${b.flows.map(name).join(", ")})?`;
@@ -228,6 +229,10 @@ export function gitWords(b: Extract<Button, { kind: "git" }>): string {
     default: return "update the branch from the base branch";
   }
 }
+
+/** 0.18.62 a start refused because the local base and origin's went their own ways: it can start on the folder's
+ *  branch instead (the refusal's own way out, which no button offered) */
+export const divergedBase = (b: Button, message: string) => b.kind === "start" && !b.branch && /went their own ways/i.test(message);
 
 /** A failed git switch that the folder's changes block: keel can stash them and switch (the Git plugin, 0.18.9). */
 export const blockedByChanges = (b: Button, message: string) => b.kind === "git" && b.op === "switch" && /would be overwritten|local changes/i.test(message);
@@ -338,7 +343,7 @@ export async function pressButton(b: Button, pid: string, name: Names): Promise<
   switch (b.kind) {
     case "start": {
       const t = await api.startFlow(pid, { workflow_id: b.workflow, title: b.title || b.workflow, request: b.request, options: { started_via: "tui-keelbot" },
-        ...(b.mode ? { run_mode: b.mode } : {}) });
+        ...(b.mode ? { run_mode: b.mode } : {}), ...(b.branch ? { branch: b.branch } : {}) });
       return `started ${b.workflow} "${t.title}": ${t.status}${t.current ? ` at ${t.current}` : ""}.`;
     }
     case "decide": {

@@ -75,8 +75,11 @@ happens until they press it. Put each one as its own fenced block at the end of 
 - Start a flow:
 ```keel-start
 {"workflow": "<an id from the list>", "title": "<one short line>", "request": "<what to build or fix, in the person's \
-words, with the details you agreed>", "mode": "<only when the person named a run mode: manual | important | auto | readonly>"}
+words, with the details you agreed>", "mode": "<only when the person named a run mode: manual | important | auto | readonly>", \
+"branch": "<only \"continue\" when the person chose to work on the branch the project folder is on>"}
 ```
+A start refused because the local base branch and origin's "went their own ways": give the start button again with \
+"branch": "continue" when the person chose the current branch (a press of the same button is refused the same way).
 When the person asks for a run mode ("in important mode"), put it in the start button's mode: a flow starts in it from \
 its first gate (a separate mode button after the start would come too late for gates before it).
 - A new workflow (keel checks it and shows Save): the whole workflow YAML in a fenced block with the info string \

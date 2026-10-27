@@ -8,7 +8,8 @@ import { describe, expect, it } from "vitest";
 // keel's own app and test harness: the panel and its buttons run inside keel's web, as keel loads them
 import { App } from "../../../../web/src/App";
 import * as fx from "../../../../web/src/test/fixtures";
-import { db } from "../../../../web/src/test/setup";
+import { db, server } from "../../../../web/src/test/setup";
+import { http, HttpResponse } from "msw";
 import { skillHead, splitActions } from "../Actions";
 import { answeredBy, ThinkingBlock } from "../HelperPanel";
 
@@ -364,6 +365,22 @@ describe("KeelBot's answers: text and buttons", () => {
     await user.click(within(card).getByRole("button", { name: "Start the flow" }));
     await waitFor(() => expect(db.calls.find((c) => c.method === "POST" && c.path === "/api/projects/ludus-engine/flows")?.body)
       .toEqual({ workflow_id: "feature", title: "ETA", request: "add it", run_mode: "important" }));
+  });
+
+  it("0.18.62 a start refused because main went its own way offers to start on the current branch", async () => {
+    const user = userEvent.setup();
+    server.use(http.post("/api/projects/:pid/flows", async ({ request }) => {
+      const b = (await request.clone().json()) as { branch?: string };
+      if (b.branch !== "continue") return HttpResponse.json({ error: "The local main and origin/main went their own ways (4 and 31 commits)",
+        hint: "Pull (or rebase) main first, so the flow's new branch starts from the latest code; or continue on the branch the folder is on." }, { status: 409 });
+      return HttpResponse.json({ ...fx.thread, thread_id: "t-new", status: "running", waiting: undefined, title: "ETA" });
+    }));
+    const p = await chatWith('```keel-start\n{"workflow": "feature", "title": "ETA", "request": "add it"}\n```');
+    const card = await within(p).findByRole("region", { name: "Start a flow: ETA" });
+    await user.click(within(card).getByRole("button", { name: "Start the flow" }));
+    expect(await within(card).findByRole("alert")).toHaveTextContent("went their own ways");
+    await user.click(within(card).getByRole("button", { name: "Start on the current branch" }));
+    expect(await within(card).findByText(/Started/)).toBeInTheDocument();
   });
 
   it("a workflow it wrote is checked, shows what it runs, and saves into a folder", async () => {

@@ -71,6 +71,8 @@ export function stubKeel() {
     // 0.18.57 a start refused for untracked paths (until ignored) or for a task someone else works on (until force)
     dirty: [] as string[],
     owner: null as null | { kind: string; id: string; who: string; why: string },
+    // 0.18.62 the local main and origin/main went their own ways: a new branch is refused, "continue" starts
+    diverged: false,
     // keel 0.18.55 the demo project's `configured` (false: keel does not know it yet, no .keel/config.yml); unset: not sent
     configured: undefined as boolean | undefined,
   };
@@ -113,6 +115,8 @@ export function stubKeel() {
         if (state.dirty.length && !body.allow_dirty) return [409, { error: `This project has uncommitted changes (1 file): ${state.dirty[0]}notes.md`,
           hint: "Commit or stash them first.", dirty: [`${state.dirty[0]}notes.md`], ignorable: state.dirty }];
         if (state.owner && !body.force) return [409, { error: "Someone already works on this", owners: [state.owner] }];
+        if (state.diverged && body.branch !== "continue") return [409, { error: "The local main and origin/main went their own ways (4 and 31 commits)",
+          hint: "Pull (or rebase) main first, so the flow's new branch starts from the latest code; or continue on the branch the folder is on." }];
         state.thread = { ...state.thread, thread_id: "t2", title: body.title, status: "running", ...state.startAt, waiting: undefined };
         return [200, state.thread];
       case "POST /api/inbox/t1/act":

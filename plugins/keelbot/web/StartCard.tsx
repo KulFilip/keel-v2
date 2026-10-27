@@ -5,7 +5,7 @@ import { errorParts, go, useLoad } from "@keel/web-sdk";
 import { kb } from "./keelbotApi";
 
 /** 0.18.28 `mode`: the run mode the person asked for (manual | important | auto | readonly); else the project's */
-type StartSpec = { workflow: string; title: string; request?: string; mode?: "manual" | "important" | "auto" | "readonly" };
+type StartSpec = { workflow: string; title: string; request?: string; mode?: "manual" | "important" | "auto" | "readonly"; branch?: "continue" };
 const START_MODES = ["manual", "important", "auto", "readonly"] as const;
 
 function parseStart(body: string): StartSpec | null {
@@ -17,6 +17,7 @@ function parseStart(body: string): StartSpec | null {
           title: String(v.title ?? ""),
           request: v.request ? String(v.request) : undefined,
           mode: START_MODES.includes(v.mode as never) ? v.mode : undefined,
+          branch: v.branch === "continue" ? "continue" : undefined,
         }
       : null;
   } catch {
@@ -39,6 +40,8 @@ export function StartCard({ pid, body }: { pid: string; body: string }) {
     message: string;
     hint?: string;
     dirty?: boolean;
+    /** 0.18.62 the local base and origin's went their own ways: start on the folder's branch instead */
+    diverged?: boolean;
   } | null>(null);
   if (!spec)
     return (
@@ -49,7 +52,7 @@ export function StartCard({ pid, body }: { pid: string; body: string }) {
     );
   const wf = wfs.data?.find((w) => w.id === spec.workflow);
   const unknown = !!wfs.data && !wf;
-  const start = async (allowDirty = false) => {
+  const start = async (allowDirty = false, branch = spec.branch) => {
     setBusy(true);
     setErr(null);
     try {
@@ -59,11 +62,13 @@ export function StartCard({ pid, body }: { pid: string; body: string }) {
         request: spec.request,
         ...(spec.mode ? { run_mode: spec.mode } : {}),
         ...(allowDirty ? { allow_dirty: true } : {}),
+        ...(branch ? { branch } : {}),
       });
       setStarted({ tid: t.thread_id, title: title.trim() });
     } catch (e) {
       const p = errorParts(e);
-      setErr({ ...p, dirty: /uncommitted changes/i.test(p.message) });
+      setErr({ ...p, dirty: /uncommitted changes/i.test(p.message),
+        diverged: !branch && /went their own ways/i.test(p.message) });
     } finally {
       setBusy(false);
     }
@@ -126,6 +131,16 @@ export function StartCard({ pid, body }: { pid: string; body: string }) {
                   disabled={busy}
                 >
                   Start anyway
+                </button>
+              )}
+              {err.diverged && (
+                <button
+                  type="button"
+                  className="btn sm"
+                  onClick={() => void start(false, "continue")}
+                  disabled={busy}
+                >
+                  Start on the current branch
                 </button>
               )}
             </div>
