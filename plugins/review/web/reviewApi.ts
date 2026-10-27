@@ -30,7 +30,23 @@ export type PrSummary = {
   mine: boolean;
   head_sha?: string | null;
   assigned?: boolean;
+  /** 0.18.60 who approved it and who asked for changes: read for your own pull requests only (null: not read) */
+  approved?: string[] | null;
+  changes_requested?: string[] | null;
 };
+
+/** 0.18.60 "approved by ana, bo" / "changes asked by cy" for a pull request of the list, or null when nobody did. */
+export function decisionText(p: PrSummary): {
+  approved: string | null;
+  changes: string | null;
+} {
+  return {
+    approved: p.approved?.length ? `approved by ${p.approved.join(", ")}` : null,
+    changes: p.changes_requested?.length
+      ? `changes asked by ${p.changes_requested.join(", ")}`
+      : null,
+  };
+}
 export type PrList = {
   host: HostRef | null;
   me: string | null;

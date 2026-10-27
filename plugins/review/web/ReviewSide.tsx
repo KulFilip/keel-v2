@@ -15,6 +15,7 @@ import {
   writeStored,
 } from "@keel/web-sdk";
 import {
+  decisionText,
   prLabel,
   prWord,
   reviewApi,
@@ -186,6 +187,7 @@ function ReviewList({
                   <>
                     {" "}
                     · {word} {prLabel(host, b.pr.number)}
+                    <Decisions p={b.pr} />
                   </>
                 )}
               </span>
@@ -289,6 +291,27 @@ function ReviewList({
   );
 }
 
+/** 0.18.60 who approved your pull request and who asked for changes. */
+function Decisions({ p }: { p: PrSummary }) {
+  const d = decisionText(p);
+  return (
+    <>
+      {d.approved && (
+        <>
+          {" "}
+          · <Pill tone="ok">{d.approved}</Pill>
+        </>
+      )}
+      {d.changes && (
+        <>
+          {" "}
+          · <Pill tone="warn">{d.changes}</Pill>
+        </>
+      )}
+    </>
+  );
+}
+
 function PrRow({
   p,
   host,
@@ -330,6 +353,7 @@ function PrRow({
             · <Pill tone="run">assigned</Pill>
           </>
         )}
+        <Decisions p={p} />
         <span className="mono"> · {p.branch}</span>
       </span>
     </button>

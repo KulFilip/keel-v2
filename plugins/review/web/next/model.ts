@@ -12,6 +12,7 @@ import type {
   ReviewView,
   Verdict,
 } from "../reviewApi";
+import { decisionText } from "../reviewApi";
 import { waitsForYou } from "../Threads";
 
 export type Tone = "ok" | "run" | "warn" | "bad" | "idle" | "accent";
@@ -59,6 +60,10 @@ export function prPill(
       `${waiting} comment${waiting === 1 ? "" : "s"} wait${waiting === 1 ? "s" : ""} for you`,
       "warn",
     ];
+  // 0.18.60 your own: who asked for changes, else who approved it
+  const d = p.mine ? decisionText(p) : null;
+  if (d?.changes) return [d.changes, "warn"];
+  if (d?.approved) return [d.approved, "ok"];
   if (p.review_requested) return ["your review is asked", "warn"];
   if (p.assigned) return ["assigned to you", "run"];
   if (p.mine) return ["yours", "idle"];

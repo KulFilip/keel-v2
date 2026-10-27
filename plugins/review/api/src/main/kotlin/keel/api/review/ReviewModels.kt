@@ -28,6 +28,9 @@ data class PrSummary(
     val headSha: String?,
     /** you are one of its assignees */
     val assigned: Boolean = false,
+    /** 0.18.60 who approved it and who asked for changes: read for your own pull requests only, null when not read */
+    val approved: List<String>? = null,
+    val changesRequested: List<String>? = null,
 )
 
 data class PrList(

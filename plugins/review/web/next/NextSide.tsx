@@ -21,7 +21,13 @@ import {
   useStored,
   type CodeOpen,
 } from "@keel/web-sdk";
-import { prLabel, prWord, reviewApi, type PrSummary } from "../reviewApi";
+import {
+  decisionText,
+  prLabel,
+  prWord,
+  reviewApi,
+  type PrSummary,
+} from "../reviewApi";
 import * as R from "../store";
 import { ago, waitsForYou } from "../Threads";
 import {
@@ -278,6 +284,7 @@ export function NextSide({
             <span className="rvn-dim">
               This branch: <span className="rvn-mono">{b.branch}</span> ·{" "}
               {n(b.ahead, "commit", "commits")} · {n(b.files, "file", "files")}
+              {b.pr && <BranchDecisions p={b.pr} />}
             </span>
             <button
               type="button"
@@ -292,6 +299,27 @@ export function NextSide({
         )}
       </div>
     </div>
+  );
+}
+
+/** 0.18.60 who approved the branch's pull request and who asked for changes. */
+function BranchDecisions({ p }: { p: PrSummary }) {
+  const d = decisionText(p);
+  return (
+    <>
+      {d.approved && (
+        <>
+          {" · "}
+          <Tag tone="ok">{d.approved}</Tag>
+        </>
+      )}
+      {d.changes && (
+        <>
+          {" · "}
+          <Tag tone="warn">{d.changes}</Tag>
+        </>
+      )}
+    </>
   );
 }
 

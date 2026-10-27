@@ -60,6 +60,8 @@ class ReviewService(
         private const val DECL_WORDS = "fun|val|var|class|interface|object|enum|record|struct|trait|typealias|type|def|function|const|let|fn|func|impl|module"
         const val PLUGIN = "review"
         const val MAX_FILE = 1_000_000
+        /** your own pull requests the list reads approvals for (one host call each) */
+        const val MAX_DECISIONS = 20
     }
 
     private fun root(pid: String): Path {
@@ -104,7 +106,6 @@ class ReviewService(
         val me = me(h)
         val all = h.list(me)
         val counts = mapOf("review" to all.count { it.reviewRequested }, "assigned" to all.count { it.assigned }, "mine" to all.count { it.mine }, "all" to all.size)
-        val cut = h.takeNotes().joinToString(" ").ifBlank { null }
         val shown = when (filter) {
             "review" -> all.filter { it.reviewRequested }
             "assigned" -> all.filter { it.assigned }
@@ -112,7 +113,19 @@ class ReviewService(
             "all", "" -> all
             else -> throw BadRequest("filter is review, assigned, mine or all")
         }
-        return PrList(h.ref, me, shown, counts, cut)
+        var left = MAX_DECISIONS
+        val withDecisions = shown.map { if (it.mine && left-- > 0) decided(h, it) else it }
+        val cut = h.takeNotes().joinToString(" ").ifBlank { null }
+        return PrList(h.ref, me, withDecisions, counts, cut)
+    }
+
+    /** 0.18.60 who approved your pull request and who asked for changes; one host call each, so only for your own.
+     *  When the host does not answer, the list still shows (approved stays null: not read). */
+    private fun decided(h: CodeHost, p: PrSummary): PrSummary = try {
+        val d = h.decisions(p.number)
+        p.copy(approved = d.approved, changesRequested = d.changes)
+    } catch (e: HostException) {
+        p
     }
 
     fun thisBranch(pid: String): BranchSummary {
@@ -126,7 +139,7 @@ class ReviewService(
         val files = ReviewGit.files(root, "refs/heads/$base", "refs/heads/$branch")
         val (h, _) = host(root)
         val (pr, note) = if (h == null) null to null else try {
-            h.forBranch(branch, me(h)) to null
+            h.forBranch(branch, me(h))?.let { if (it.mine) decided(h, it) else it } to null
         } catch (e: HostException) {
             null to e.message
         }

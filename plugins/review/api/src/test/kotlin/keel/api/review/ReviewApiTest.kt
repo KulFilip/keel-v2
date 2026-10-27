@@ -278,6 +278,33 @@ class ReviewApiTest : ApiTest() {
     }
 
     @Test
+    fun `the list says who approved your own pull requests and who asked for changes`() {
+        val (pid, _) = githubPr()
+        val mine = hosts.github["acme/shop"]!![8]!!
+        mine.reviews += mapOf("user" to mapOf("login" to "bo"), "state" to "APPROVED")
+        mine.reviews += mapOf("user" to mapOf("login" to "cy"), "state" to "APPROVED")
+        mine.reviews += mapOf("user" to mapOf("login" to "cy"), "state" to "CHANGES_REQUESTED")
+        val pr = get("/api/projects/$pid/review/prs?filter=mine").andExpect(status().isOk).json()["prs"].single()
+        assertThat(pr["approved"].map { it.asText() }).containsExactly("bo")
+        assertThat(pr["changes_requested"].map { it.asText() }).containsExactly("cy")
+        // someone else's pull request: not read (one host call each), so not said
+        val other = get("/api/projects/$pid/review/prs?filter=all").json()["prs"].single { it["number"].asInt() == 7 }
+        assertThat(other.path("approved").let { it.isNull || it.isMissingNode }).isTrue()
+        assertThat(hosts.calls("GET", "/pulls/7/reviews")).isEmpty()
+    }
+
+    @Test
+    fun `a GitLab merge request of yours lists who approved it`() {
+        val (pid, _, head) = repoWithChange("review-gl-approved", "gitlab.test", "group/shop", "refs/merge-requests/4/head")
+        put("/api/gitlab", mapOf("url" to "https://gitlab.test", "token" to hosts.gitlabToken)).andExpect(status().isOk)
+        val mr = StubCodeHost.Pr(4, "Mine", "me", "feat/mine", "main", head)
+        mr.approvedBy += listOf("ana", "bo")
+        hosts.gitlab["group/shop"] = mutableMapOf(4 to mr)
+        val pr = get("/api/projects/$pid/review/prs?filter=mine").andExpect(status().isOk).json()["prs"].single()
+        assertThat(pr["approved"].map { it.asText() }).containsExactly("ana", "bo")
+    }
+
+    @Test
     fun `a GitLab merge request is reviewed the same way, with approve`() {
         val (pid, root, head) = repoWithChange("review-gl", "gitlab.test", "group/shop", "refs/merge-requests/3/head")
         get("/api/projects/$pid/review/prs").json().let { assertThat(it["note"].asText()).contains("Add GitLab") }        // no GitLab connection yet

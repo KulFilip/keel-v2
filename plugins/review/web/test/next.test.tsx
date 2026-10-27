@@ -12,7 +12,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { App } from "../../../../web/src/App";
 import { db, server } from "../../../../web/src/test/setup";
 import { registerReviewTab } from "../next/tabs";
-import { nextDemo } from "./nextDemo";
+import { prPill } from "../next/model";
+import { nextDemo, PRS } from "./nextDemo";
 
 const MODE = "keel2.review.view";
 
@@ -96,6 +97,25 @@ describe("the new Review view: the switch", () => {
 });
 
 describe("the new Review view: the list", () => {
+  it("says who approved your own pull request, and who asked for changes first", () => {
+    const mine = PRS.find((p) => p.mine)!;
+    expect(prPill({ ...mine, approved: ["bo", "cy"] }, null)).toEqual([
+      "approved by bo, cy",
+      "ok",
+    ]);
+    expect(
+      prPill(
+        { ...mine, approved: ["bo"], changes_requested: ["cy"] },
+        null,
+      ),
+    ).toEqual(["changes asked by cy", "warn"]);
+    expect(prPill({ ...mine, approved: [] }, null)).toEqual(["yours", "idle"]);
+    // comments that wait for you come first
+    expect(prPill({ ...mine, approved: ["bo"] }, 2)[0]).toBe(
+      "2 comments wait for you",
+    );
+  });
+
   it("filters by All / To review / Mine / Assigned and a search, and Review #N opens the next one that needs you", async () => {
     start({ mode: "next" });
     const { side } = await openSide();

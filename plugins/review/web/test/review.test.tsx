@@ -191,6 +191,8 @@ function reviewServer() {
       review_requested: false,
       mine: true,
       assigned: false,
+      approved: ["ana"],
+      changes_requested: [],
     },
   ];
   const R = "/api/projects/:pid/review";
@@ -617,6 +619,10 @@ describe("Code › Review, IDE style", () => {
       }),
     ).toHaveTextContent("assigned");
     await userEvent.click(within(list).getByRole("tab", { name: /Mine/ }));
+    // 0.18.60 who approved your own pull request, in the list
+    expect(
+      await within(list).findByRole("button", { name: "#8 My paging" }),
+    ).toHaveTextContent("approved by ana");
     await userEvent.click(
       await within(list).findByRole("button", { name: "#8 My paging" }),
     );
