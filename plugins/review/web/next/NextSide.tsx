@@ -72,8 +72,9 @@ export function NextSide({
   open: CodeOpen;
   /** the review whose tab the editor shows now */
   activeKey: string | null;
-  mode: ReviewMode;
-  onMode: (m: ReviewMode) => void;
+  /** the Classic | New view switch; the Review page (0.18.62) has none */
+  mode?: ReviewMode;
+  onMode?: (m: ReviewMode) => void;
 }) {
   R.useReviewStore();
   const { toast } = useApp();
@@ -153,7 +154,7 @@ export function NextSide({
         <header className="rvn-shead">
           <div className="rvn-shead-1">
             <h2>Review</h2>
-            <ModeSwitch mode={mode} onPick={onMode} />
+            {mode && onMode && <ModeSwitch mode={mode} onPick={onMode} />}
           </div>
           <p className="rvn-dim">{head}</p>
           <div className="rvn-row">

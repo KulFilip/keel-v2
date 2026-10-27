@@ -1,5 +1,5 @@
-// 0.18.57 the new Review view (the redesign's Work › Review), next to the classic one: the switch (Classic is the
-// default, the choice is remembered in this browser), the list with its filters, search and "Review #N", a pull request
+// 0.18.57 the new Review view (the redesign's Work › Review), next to the classic one; 0.18.62 its own page in the
+// menu (#/review), and Code › Review the classic view only (its hint opens the page). The list with its filters, search and "Review #N", a pull request
 // in an editor tab with its tabs (Comments · Files · Problems · Commits · Checklist, and registered ones), keel's
 // verdict on a comment and Address it with its confirmation, Files (viewed, a pending comment on a line, a comment's
 // marker), Problems (Add as comment, Dismiss), the Submit drawer (Approve is not offered on your own pull request), and
@@ -17,18 +17,25 @@ import { nextDemo, PRS } from "./nextDemo";
 
 const MODE = "keel2.review.view";
 
-function start(opts: { mode?: "classic" | "next"; found?: number[] } = {}) {
+function start(opts: { found?: number[] } = {}) {
   const demo = nextDemo({ found: opts.found });
   server.use(...demo.handlers);
   db.plugins.review = true;
-  if (opts.mode) localStorage.setItem(MODE, JSON.stringify(opts.mode));
   return demo;
 }
 
-async function openSide() {
+/** Code › Review: the classic view. */
+async function openCode() {
   location.hash = "#/repo";
   const app = render(<App />);
   await userEvent.click(await screen.findByRole("button", { name: "Review" }));
+  return { app, side: await screen.findByRole("region", { name: "Review" }) };
+}
+
+/** The Review page (#/review): the new view's list. */
+async function openSide() {
+  location.hash = "#/review";
+  const app = render(<App />);
   return { app, side: await screen.findByRole("region", { name: "Review" }) };
 }
 
@@ -46,11 +53,11 @@ async function openPr(n: number) {
 const tab = (pr: HTMLElement, name: RegExp) =>
   within(pr).getByRole("tab", { name });
 
-describe("the new Review view: the switch", () => {
-  it("shows the classic view by default with a one-line hint, switches to the new view, and remembers it", async () => {
+describe("the new Review view: its own page", () => {
+  it("Code › Review shows the classic view only, with a hint that opens the Review page", async () => {
     start();
-    const { app, side } = await openSide();
-    // the classic view, as before: its list and its own sections
+    localStorage.setItem(MODE, JSON.stringify("next"));    // a choice 0.18.57–0.18.61 remembered: the classic view still
+    const { side } = await openCode();
     expect(
       await within(side).findByRole("region", { name: "This branch" }),
     ).toBeInTheDocument();
@@ -60,39 +67,19 @@ describe("the new Review view: the switch", () => {
     await userEvent.click(
       screen.getByRole("button", { name: /Try the new review view/ }),
     );
-
-    const next = await screen.findByRole("region", { name: "Review" });
-    const sw = within(next).getByRole("group", { name: "Review view" });
-    expect(
-      within(sw).getByRole("button", { name: "New view" }),
-    ).toHaveAttribute("aria-pressed", "true");
-    expect(JSON.parse(localStorage.getItem(MODE)!)).toBe("next");
-    expect(
-      screen.queryByRole("button", { name: /Try the new review view/ }),
-    ).not.toBeInTheDocument();
-
-    // keel opens again in this browser: the new view still
-    app.unmount();
-    const again = await openSide();
-    expect(
-      within(again.side).getByRole("group", { name: "Review view" }),
-    ).toBeInTheDocument();
-    await userEvent.click(
-      within(again.side).getByRole("button", { name: "Classic" }),
-    );
-    expect(
-      await screen.findByRole("button", { name: /Try the new review view/ }),
-    ).toBeInTheDocument();
-    expect(JSON.parse(localStorage.getItem(MODE)!)).toBe("classic");
+    await waitFor(() => expect(location.hash).toBe("#/review"));
   });
 
-  it("falls back to the classic view when the stored choice is not one it knows (or storage is blocked)", async () => {
+  it("the Review page has the list and no Classic | New view switch", async () => {
     start();
-    localStorage.setItem(MODE, "not json");
-    await openSide();
+    const { side } = await openSide();
+    await waitFor(() =>
+      expect(within(side).queryAllByRole("button", { name: /^#\d+ / })).toHaveLength(4),
+    );
     expect(
-      await screen.findByRole("button", { name: /Try the new review view/ }),
-    ).toBeInTheDocument();
+      screen.queryByRole("group", { name: "Review view" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/Pick a pull request on the left/)).toBeInTheDocument();
   });
 });
 
@@ -117,7 +104,7 @@ describe("the new Review view: the list", () => {
   });
 
   it("filters by All / To review / Mine / Assigned and a search, and Review #N opens the next one that needs you", async () => {
-    start({ mode: "next" });
+    start();
     const { side } = await openSide();
     const rows = () =>
       within(side).queryAllByRole("button", { name: /^#\d+ / });
@@ -185,12 +172,12 @@ describe("the new Review view: the list", () => {
     expect(
       await screen.findByRole("region", { name: "Review of #45" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /Review #45/ })).toBeInTheDocument();
+    await waitFor(() => expect(location.hash).toMatch(/^#\/review\/pr(:|%3A)45$/));
   });
 
-  it("opens a review's link (#/repo/@review/pr:45) as the new view's tab", async () => {
-    start({ mode: "next" });
-    location.hash = "#/repo/@review/pr%3A45";
+  it("opens a review's link (#/review/pr:45) on the Review page", async () => {
+    start();
+    location.hash = "#/review/pr%3A45";
     render(<App />);
     expect(
       await screen.findByRole("region", { name: "Review of #45" }),
@@ -203,7 +190,7 @@ describe("the new Review view: one pull request", () => {
   afterEach(() => act(() => off()));
 
   it("has keel's overview in its head and the tabs Comments · Files · Problems · Commits · Checklist, plus a registered one", async () => {
-    start({ mode: "next" });
+    start();
     off = registerReviewTab({
       id: "database",
       label: "Database",
@@ -265,7 +252,7 @@ describe("the new Review view: one pull request", () => {
   });
 
   it("shows keel's verdict point by point, uses it as the reply, and starts Address it only after you confirm", async () => {
-    const demo = start({ mode: "next" });
+    const demo = start();
     const { pr } = await openPr(42);
     const card = (name: RegExp) => within(pr).getByRole("article", { name });
     // bo's comment: keel says the reviewer is not right
@@ -346,7 +333,7 @@ describe("the new Review view: one pull request", () => {
   });
 
   it("asks keel about a comment it has not checked, and Check all open checks the rest", async () => {
-    const demo = start({ mode: "next" });
+    const demo = start();
     const { pr } = await openPr(42);
     const th3 = within(pr).getByRole("article", { name: /views\.py · line 7/ });
     expect(within(th3).getByText("waits for you")).toBeInTheDocument();
@@ -385,7 +372,7 @@ describe("the new Review view: one pull request", () => {
   });
 
   it("Files: ticks a file viewed, adds a pending comment on a line, and a comment's marker opens it in Comments", async () => {
-    const demo = start({ mode: "next" });
+    const demo = start();
     const { pr } = await openPr(42);
     await userEvent.click(tab(pr, /^Files/));
     const files = within(pr).getByRole("list", { name: "Changed files" });
@@ -448,7 +435,7 @@ describe("the new Review view: one pull request", () => {
   });
 
   it("Problems: Find problems, then Add as comment and Dismiss, grouped Blocking / Should fix / Already there before", async () => {
-    const demo = start({ mode: "next", found: [] });
+    const demo = start({ found: [] });
     const { pr } = await openPr(45);
     await userEvent.click(tab(pr, /^Problems/));
     expect(
@@ -507,7 +494,7 @@ describe("the new Review view: one pull request", () => {
 
 describe("the new Review view: Submit", () => {
   it("does not offer Approve or Request changes on your own pull request; it sends a comment", async () => {
-    const demo = start({ mode: "next" });
+    const demo = start();
     const { pr } = await openPr(42);
     await userEvent.click(
       within(pr).getByRole("button", { name: "Submit review" }),
@@ -549,7 +536,7 @@ describe("the new Review view: Submit", () => {
   });
 
   it("approves another's pull request with its pending comments; the list says so and Review #N moves on", async () => {
-    const demo = start({ mode: "next" });
+    const demo = start();
     const { side, pr } = await openPr(45);
     await userEvent.click(tab(pr, /^Files/));
     const diff = await within(pr).findByRole("region", {
@@ -600,7 +587,7 @@ describe("the new Review view: Submit", () => {
   });
 
   it("removes a pending comment in the drawer", async () => {
-    const demo = start({ mode: "next" });
+    const demo = start();
     const { pr } = await openPr(45);
     await userEvent.click(tab(pr, /^Files/));
     const diff = await within(pr).findByRole("region", {
@@ -652,30 +639,27 @@ describe("the new Review view on a phone", () => {
       onchange: null,
     })) as unknown as typeof window.matchMedia;
     try {
-      start({ mode: "next" });
-      location.hash = "#/repo";
-      const { container } = render(<App />);
-      await userEvent.click(
-        await screen.findByRole("button", { name: "Review" }),
-      );
+      start();
+      location.hash = "#/review";
+      render(<App />);
       const side = await screen.findByRole("region", { name: "Review" });
-      const ide = container.querySelector(".ide")!;
-      expect(ide).toHaveClass("phone");
-      expect(ide).toHaveClass("s-side");
+      // one at a time: the list, no pull request beside it
+      expect(screen.queryByText(/Pick a pull request on the left/)).not.toBeInTheDocument();
       await userEvent.click(
         await within(side).findByRole("button", { name: /^#45 / }),
       );
       expect(
         await screen.findByRole("region", { name: "Review of #45" }),
       ).toBeInTheDocument();
-      await waitFor(() => expect(ide).toHaveClass("s-editor"));
+      expect(screen.queryByRole("region", { name: "Review" })).not.toBeInTheDocument();
       await userEvent.click(
-        screen.getByRole("button", { name: "Back to the files" }),
+        screen.getByRole("button", { name: "‹ All pull requests" }),
       );
-      await waitFor(() => expect(ide).toHaveClass("s-side"));
+      const back = await screen.findByRole("region", { name: "Review" });
       expect(
-        within(side).getByRole("button", { name: /^#45 / }),
-      ).toHaveAttribute("aria-current", "true");
+        await within(back).findByRole("button", { name: /^#45 / }),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("region", { name: "Review of #45" })).not.toBeInTheDocument();
     } finally {
       act(() => {
         window.matchMedia = had;

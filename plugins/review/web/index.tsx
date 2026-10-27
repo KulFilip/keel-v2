@@ -9,7 +9,7 @@
 import { useEffect } from "react";
 import {
   definePlugin,
-  readStored,
+  go,
   SLOTS,
   type CodeActivityItem,
   type CodeActivityProps,
@@ -30,10 +30,10 @@ import { ReviewLayer } from "./ReviewLayer";
 import { openReview, ReviewSide } from "./ReviewSide";
 import { setOpener } from "./store";
 import { ThreadSettings } from "./ThreadSettings";
-import { isMode, keyLabel, MODE_KEY, type ReviewMode } from "./next/model";
+import { keyLabel } from "./next/model";
 import { NextReview } from "./next/NextReview";
-import { linkToNext, NextSide } from "./next/NextSide";
-import { TryNewHint, useReviewMode } from "./next/Switch";
+import { ReviewPage } from "./next/ReviewPage";
+import { TryNewHint } from "./next/Switch";
 import "./review.css";
 import "./next/next.css";
 
@@ -57,13 +57,6 @@ function reviewOf(
   return { key, path, view: active.view === "code" ? "code" : "diff" };
 }
 
-/** The pull request the new view's editor tab shows now ("pr:42|"), or null. */
-function nextOf(active: CodeTabRef | null): string | null {
-  if (active?.kind !== "review") return null;
-  const [key, path] = splitReview(active.path);
-  return path ? null : key;
-}
-
 /** Code › Review: the pull requests and one review; its files open as editor tabs. */
 function ReviewActivity({ pid, active, open }: CodeActivityProps) {
   // v0.14.0 a review opens its files as editor tabs (kind "review", path "<key>|<file>", view diff or code)
@@ -73,10 +66,7 @@ function ReviewActivity({ pid, active, open }: CodeActivityProps) {
     );
     return () => setOpener(null);
   }, [open]);
-  // 0.18.57 the classic view (the default) or the new one, as this browser chose
-  const [mode, setMode] = useReviewMode();
-  if (mode === "next")
-    return <NextSide pid={pid} open={open} activeKey={nextOf(active)} mode={mode} onMode={setMode} />;
+  // 0.18.62 the classic view only: the new one is its own page in the menu (Review, #/review)
   const f = reviewOf(active);
   return (
     <>
@@ -84,7 +74,7 @@ function ReviewActivity({ pid, active, open }: CodeActivityProps) {
         pid={pid}
         activeFile={f ? { key: f.key, path: f.path } : null}
       />
-      <TryNewHint onTry={() => setMode("next")} />
+      <TryNewHint onTry={() => go("review")} />
     </>
   );
 }
@@ -124,6 +114,20 @@ export const REVIEW_KEYS: KeysAreaItem = {
 export function setup(sdk: KeelSdk) {
   // 0.18.57 the overview's Database and System tabs in the new view's pull request (the classic overview has them too)
   registerDiagramTabs();
+  // 0.18.62 the new Review view as its own page: the pull requests and one review (#/review/pr:42)
+  sdk.registerPage({
+    id: "review",
+    label: "Review",
+    group: "know",
+    order: 15,
+    icon: (
+      <>
+        <path d="M4 5h16v10H9l-5 4z" />
+        <path d="M8.5 10l2 2 4-4" />
+      </>
+    ),
+    component: ReviewPage,
+  });
   sdk.registerSlot<ConnectionKindItem>(SLOTS.connectionsKind, {
     id: "gitlab",
     title: "GitLab",
@@ -141,11 +145,7 @@ export function setup(sdk: KeelSdk) {
     plugin: "review",
     component: ReviewActivity,
     layer: ReviewKeys,
-    // 0.18.57 the new view (when this browser chose it) opens the link's review as its editor tab
-    onLink: (pid, value) => {
-      openReview(pid, value);
-      if (readStored<ReviewMode>(MODE_KEY, "classic", "local", isMode) === "next") linkToNext(pid, value);
-    },
+    onLink: (pid, value) => openReview(pid, value),
     // its own width on the Code page (the threads need room); the key is the one 0.18.38's first draft kept
     sideWidth: { key: "keel2.review.sideW", default: 440, min: 280 },
   });

@@ -51,7 +51,7 @@ describe("registerPage", () => {
         menuGroups()
           .find((g) => g.id === "know")
           ?.pages.map(([id]) => id),
-      ).toEqual(["repo", "helper", "map", "demo-page", "graph", "wiki"]);
+      ).toEqual(["repo", "review", "helper", "map", "demo-page", "graph", "wiki"]);
     } finally {
       off();
     }
@@ -280,6 +280,7 @@ describe("the menu and the links stay as they were", () => {
       hint: "what this project is",
       pages: [
         ["repo", "Code"],
+        ["review", "Review"],
         ["helper", "KeelBot"],
         ["map", "Map"],
         ["graph", "Graph"],

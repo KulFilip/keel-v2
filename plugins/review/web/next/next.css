@@ -1161,3 +1161,40 @@
 .ide.phone.side-own:not(.side-closed):not(.help-open):has(.rvn-side) {
   grid-template-columns: minmax(0, 1fr);
 }
+
+/* 0.18.62 the Review page (#/review): the pull requests on the left, the one you picked on the right */
+.rvn-page {
+  display: grid;
+  grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
+  height: calc(100dvh - 56px);
+  min-height: 420px;
+  border-top: 1px solid var(--line);
+}
+.rvn-page-side {
+  display: flex;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+}
+.rvn-page-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.rvn-page-empty {
+  padding: 24px;
+}
+/* a phone: the list or the pull request, one at a time */
+.rvn-page.phone {
+  grid-template-columns: minmax(0, 1fr);
+}
+.rvn-page.phone.s-list .rvn-page-main {
+  display: none;
+}
+.rvn-page.phone .rvn-page-side {
+  border-right: 0;
+}
+.rvn-page-back {
+  align-self: flex-start;
+  margin: 8px 12px 0;
+}
