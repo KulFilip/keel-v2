@@ -13,6 +13,7 @@
 
 import { useEffect, useId, useState } from "react";
 import { ErrorBox, useApp, useStored } from "@keel/web-sdk";
+import { ChecksList } from "../Checks";
 import { prLabel } from "../reviewApi";
 import * as R from "../store";
 import { ago, waitsForYou } from "../Threads";
@@ -196,7 +197,7 @@ export function NextReview({ pid, reviewKey }: { pid: string; reviewKey: string 
               </button>
             )}
           </div>
-          <p className="rvn-prmeta">
+          <div className="rvn-prmeta">
             <Tag tone={stTone}>{st}</Tag>
             <span>
               {v.kind === "pr"
@@ -212,7 +213,13 @@ export function NextReview({ pid, reviewKey }: { pid: string; reviewKey: string 
               file{v.files.length === 1 ? "" : "s"}
             </span>
             {checks && (
-              <span className={`rvn-tone t-${checks[1]}`}>{checks[0]}</span>
+              <ChecksList
+                checks={v.checks}
+                where={where}
+                summary={
+                  <span className={`rvn-tone t-${checks[1]}`}>{checks[0]}</span>
+                }
+              />
             )}
             {v.approved.length > 0 && (
               <span>approved by {v.approved.join(", ")}</span>
@@ -220,7 +227,7 @@ export function NextReview({ pid, reviewKey }: { pid: string; reviewKey: string 
             {v.changes_requested.length > 0 && (
               <span>changes asked by {v.changes_requested.join(", ")}</span>
             )}
-          </p>
+          </div>
           <details className="rvn-overview">
             <summary>What this change does (keel's overview)</summary>
             <div className="rvn-stack">

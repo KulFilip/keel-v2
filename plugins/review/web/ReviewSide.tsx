@@ -23,6 +23,7 @@ import {
   type PrSummary,
   type ReviewView,
 } from "./reviewApi";
+import { ChecksList } from "./Checks";
 import { FileTree, treeOrder } from "./FileTree";
 import { keyLabel, readKeymap } from "./keymap";
 import {
@@ -544,13 +545,19 @@ function OneReview({
         <div className="rv-row">
           {v.state && v.state !== "open" && <Pill tone="idle">{v.state}</Pill>}
           {v.draft && <Pill tone="idle">draft</Pill>}
-          {v.checks.length > 0 && (
-            <Pill
-              tone={failed ? "bad" : greens === v.checks.length ? "ok" : "run"}
-            >
-              CI {greens}/{v.checks.length}
-            </Pill>
-          )}
+          <ChecksList
+            checks={v.checks}
+            where={v.host?.kind === "gitlab" ? "GitLab" : "GitHub"}
+            summary={
+              <Pill
+                tone={
+                  failed ? "bad" : greens === v.checks.length ? "ok" : "run"
+                }
+              >
+                CI {greens}/{v.checks.length}
+              </Pill>
+            }
+          />
           {v.approved.length > 0 && (
             <Pill tone="ok">approved by {v.approved.join(", ")}</Pill>
           )}
