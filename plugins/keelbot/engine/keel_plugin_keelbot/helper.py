@@ -85,7 +85,7 @@ from .chat.prompt import (  # noqa: F401 - re-exported: the routes and the tests
     summary_prompt, SUMMARY_RULES, SUMMARY_TEMPLATE, TRANSCRIPT_CHARS, _failed_block, _flow_block, _images_block,
     _pointing, _shell_block, _transcript,
 )
-from .chat import folder_branch
+from .chat import branch_facts, folder_branch
 from .chat.toolevents import (  # noqa: F401 - re-exported: the routes and the tests reach them through helper
     commands, FILE_TOOL, SHELL_TOOLS, THINKING_MAX, tool_event, TOOL_KINDS, TOOL_OUTPUT_MAX, TOOL_SUMMARY_MAX,
     _first_line, _line_count, _MORE_LINES, _STAT, _thinking_data,
@@ -546,13 +546,16 @@ class HelperRunner:
                 branch_moved = await asyncio.to_thread(folder_branch.switch, root, seen, read_branch, body.get("keel"))
                 if branch_moved:
                     ev("helper.branch", {**branch_moved, "session": sid, "n": n})
+            # 0.18.62 "what does this branch do?": the branch's exact git facts and the answer's order
+            facts = await asyncio.to_thread(branch_facts.facts, root) if branch_facts.asks_about_branch(question) else None
             transcript = "" if (resume or model.get("mode") == "api" or provider == "fake") else _transcript(hist)
             prompt = build_prompt(mode=mode, root=root, question=question, know=know, branch=s.get("branch") or "", pid=project,
                                   graph=agent_knowledge.has_codegraph(mcp_specs, tools_allow), flow=body.get("flow"),
                                   mentions=body.get("mentions"), selection=body.get("selection"), open_file=body.get("open_file"),
                                   transcript=transcript, keel={**(body.get("keel") or {}), "plugins": on},
                                   shell=body.get("shell"), images=body.get("images_ok"), failed=before_failed, was=was,
-                                  title=bool(auto), folder=folder_branch.prompt_lines(read_branch, branch_moved))
+                                  title=bool(auto), folder=folder_branch.prompt_lines(read_branch, branch_moved)
+                                  + branch_facts.prompt_lines(facts))
             with tempfile.TemporaryDirectory(prefix="keel-helper-") as tmp:
                 scratch["dir"] = tmp
                 toolbox.no_repeat = tmp
