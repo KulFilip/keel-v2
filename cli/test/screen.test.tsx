@@ -79,7 +79,9 @@ describe("the full screen", () => {
     expect(ls.length).toBe(ROWS - 1);
     expect(ls[0]).toMatch(/^\[ keel \] v2 /);
     // keel itself on top (0.18.8): its logins and what it spent; the project and its branch are the bottom line's
-    expect(ls[0]).toContain("claude ✓ codex ✗");
+    // only the logins that work (0.18.61): codex is not set up, so it is not there
+    expect(ls[0]).toContain("claude ✓ · today");
+    expect(ls[0]).not.toContain("codex");
     expect(ls[0]).toContain("today 15.4k $0.42 · month 99.0k $3.10");
     expect(ls[0]).not.toContain("demo");
     expect(ls.at(-1)).toMatch(/^ \[\?\] ask · demo/);          // KeelBot's mode first, then the project and its branch

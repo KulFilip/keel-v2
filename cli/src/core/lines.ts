@@ -149,10 +149,12 @@ export function startLines(s: Snapshot, width: number, p: Paint): string[] {
   ];
 }
 
-/** The line that stays at the top: keel itself — its version, the logins it can use (✓ works now, ✗ not), and what it
- *  spent today and this month. Where the person is (the project, its branch, the flow) is the bottom line's (0.18.8). */
+/** The line that stays at the top: keel itself — its version, the logins it can use now (0.18.61: only those; the ones
+ *  not set up are in Connections), and what it spent today and this month. Where the person is (the project, its branch, the
+ *  flow) is the bottom line's (0.18.8). */
 export function headerLine(s: Snapshot, width: number, p: Paint): string {
-  const logins = s.logins.map((l) => (l.ready ? p.ok(`${l.label.toLowerCase()} ✓`) : p.faint(`${l.label.toLowerCase()} ✗`)));
+  const ready = s.logins.filter((l) => l.ready).map((l) => p.ok(`${l.label.toLowerCase()} ✓`));
+  const logins = ready.length || !s.logins.length ? ready : [p.warn("no model login")];
   // short, so the whole line fits 80 columns: "today 1.9M $9.03"
   const spend = (label: string, x: { tokens: number; cost_usd: number }) =>
     p.dim(`${label} `) + fmt.short(x.tokens) + " " + p.bold(`$${x.cost_usd.toFixed(2)}`);
